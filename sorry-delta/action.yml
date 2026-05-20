@@ -1,0 +1,57 @@
+name: "Sorry Delta"
+description: >
+  Compute the sorry-tainted declaration delta between a base and head manifest.
+  Produces a markdown section suitable for inclusion in a PR comment.
+author: "Beneficial AI Foundation"
+
+branding:
+  icon: "git-pull-request"
+  color: "orange"
+
+inputs:
+  base-manifest:
+    description: "Path to the base sorry-manifest.txt (may not exist if no baseline is available)"
+    required: true
+  head-manifest:
+    description: "Path to the head sorry-manifest.txt"
+    required: true
+  fail-on-new:
+    description: "Exit with error if new sorry-tainted declarations are found"
+    required: false
+    default: "false"
+  output-path:
+    description: "Path for the output markdown section"
+    required: false
+    default: ".sorry-delta-section.md"
+
+outputs:
+  new-count:
+    description: "Number of new sorry-tainted declarations"
+    value: ${{ steps.diff.outputs.new-count }}
+  removed-count:
+    description: "Number of removed sorry-tainted declarations"
+    value: ${{ steps.diff.outputs.removed-count }}
+  total-count:
+    description: "Total sorry-tainted declarations in head"
+    value: ${{ steps.diff.outputs.total-count }}
+  comment-path:
+    description: "Path to the generated markdown section"
+    value: ${{ steps.diff.outputs.comment-path }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Compute sorry delta
+      id: diff
+      shell: bash
+      run: |
+        FAIL_FLAG=""
+        if [ "${{ inputs.fail-on-new }}" = "true" ]; then
+          FAIL_FLAG="--fail-on-new"
+        fi
+        python3 "${{ github.action_path }}/sorry-diff.py" \
+          "${{ inputs.base-manifest }}" \
+          "${{ inputs.head-manifest }}" \
+          --output "${{ inputs.output-path }}" \
+          --summary \
+          $FAIL_FLAG

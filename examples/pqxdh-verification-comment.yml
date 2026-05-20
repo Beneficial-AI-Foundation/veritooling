@@ -1,0 +1,66 @@
+# Example: PostQuantumeXtendedDiffieHellman-model verification comment
+#
+# Copy to .github/workflows/verification-comment.yml in the PQXDH repo.
+
+name: Verification Comment
+on:
+  workflow_run:
+    workflows: ["Lean CI"]
+    types: [completed]
+
+jobs:
+  comment:
+    name: Report Verification Delta
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+
+    steps:
+      - name: Checkout veritooling
+        uses: actions/checkout@v4
+        with:
+          repository: Beneficial-AI-Foundation/veritooling
+          sparse-checkout: |
+            sorry-delta/
+            verification-delta-report/
+
+      - name: Download verification artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: verification-audit
+          path: artifacts
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate PR number
+        id: pr
+        run: |
+          PR_NUM=$(cat artifacts/pr-number.txt)
+          if ! [[ "$PR_NUM" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid PR number: $PR_NUM"
+            exit 1
+          fi
+          echo "number=$PR_NUM" >> "$GITHUB_OUTPUT"
+
+      - name: Compute sorry delta
+        uses: ./sorry-delta
+        with:
+          base-manifest: artifacts/sorry-manifest-base.txt
+          head-manifest: artifacts/sorry-manifest.txt
+
+      - name: Combine verification delta report
+        uses: ./verification-delta-report
+        with:
+          sorry-delta-path: .sorry-delta-section.md
+
+      - name: Post PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: verification-delta
+          number: ${{ steps.pr.outputs.number }}
+          path: .verification-delta-comment.md

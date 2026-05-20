@@ -1,0 +1,44 @@
+name: "Verification Delta Report"
+description: >
+  Combine sorry-delta and specs-delta markdown sections into a single
+  Verification Delta comment file for a PR.
+author: "Beneficial AI Foundation"
+
+branding:
+  icon: "check-square"
+  color: "blue"
+
+inputs:
+  sorry-delta-path:
+    description: "Path to the sorry-delta markdown section"
+    required: false
+    default: ".sorry-delta-section.md"
+  specs-delta-path:
+    description: "Path to the specs-delta markdown section (empty to skip)"
+    required: false
+    default: ""
+  output-path:
+    description: "Path for the combined comment file"
+    required: false
+    default: ".verification-delta-comment.md"
+
+outputs:
+  comment-path:
+    description: "Path to the combined Verification Delta comment file"
+    value: ${{ steps.combine.outputs.comment-path }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Combine verification delta sections
+      id: combine
+      shell: bash
+      run: |
+        SPECS_FLAG=""
+        if [ -n "${{ inputs.specs-delta-path }}" ] && [ -f "${{ inputs.specs-delta-path }}" ]; then
+          SPECS_FLAG="--specs-delta ${{ inputs.specs-delta-path }}"
+        fi
+        python3 "${{ github.action_path }}/combine-sections.py" \
+          --sorry-delta "${{ inputs.sorry-delta-path }}" \
+          --output "${{ inputs.output-path }}" \
+          $SPECS_FLAG

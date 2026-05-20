@@ -1,0 +1,64 @@
+name: "Sorry Audit (probe-lean)"
+description: >
+  Generate a sorry manifest using probe-lean for sorry detection via build
+  warning parsing.  Zero configuration -- auto-detects root module from
+  lakefile.toml.  Requires a prior `lake build`.
+author: "Beneficial AI Foundation"
+
+branding:
+  icon: "search"
+  color: "green"
+
+inputs:
+  project-path:
+    description: "Path to the Lean 4 project"
+    required: false
+    default: "."
+  manifest-path:
+    description: "Output path for the sorry manifest"
+    required: false
+    default: "sorry-manifest.txt"
+  probe-lean-ref:
+    description: "Git ref for probe-lean source"
+    required: false
+    default: "main"
+
+outputs:
+  manifest-path:
+    description: "Path to the generated sorry manifest"
+    value: ${{ inputs.manifest-path }}
+  sorry-count:
+    description: "Total sorry-tainted declaration count"
+    value: ${{ steps.convert.outputs.sorry-count }}
+  probe-results:
+    description: "Path to the full probe-lean JSON (for specs-delta probe mode)"
+    value: ${{ steps.find-results.outputs.probe-results }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Run probe-lean extract
+      uses: Beneficial-AI-Foundation/probe-lean/action@main
+      with:
+        project-path: ${{ inputs.project-path }}
+        probe-lean-ref: ${{ inputs.probe-lean-ref }}
+
+    - name: Find probe-lean results
+      id: find-results
+      shell: bash
+      run: |
+        PROJECT="${{ inputs.project-path }}"
+        RESULTS=$(find "$PROJECT/.verilib/probes/" -name "lean_*.json" -type f 2>/dev/null | head -1)
+        if [ -z "$RESULTS" ]; then
+          echo "::error::No probe-lean results found in $PROJECT/.verilib/probes/"
+          exit 1
+        fi
+        echo "probe-results=$RESULTS" >> "$GITHUB_OUTPUT"
+
+    - name: Convert to sorry manifest
+      id: convert
+      shell: bash
+      run: |
+        python3 "${{ github.action_path }}/probe-to-manifest.py" \
+          "${{ steps.find-results.outputs.probe-results }}" \
+          --output "${{ inputs.manifest-path }}"

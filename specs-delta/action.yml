@@ -1,0 +1,99 @@
+name: "Specs Delta"
+description: >
+  Detect spec theorem changes between base and head.  Supports git-diff mode
+  (file-level, lightweight) and probe mode (declaration-level, rich).
+author: "Beneficial AI Foundation"
+
+branding:
+  icon: "file-text"
+  color: "purple"
+
+inputs:
+  mode:
+    description: "Detection mode: git-diff or probe"
+    required: false
+    default: "git-diff"
+  specs-paths:
+    description: "Comma-separated paths to specs directories (required for git-diff mode)"
+    required: false
+    default: ""
+  base-ref:
+    description: "Base git ref for comparison (required for git-diff mode)"
+    required: false
+    default: ""
+  probe-base-json:
+    description: "Path to base probe-lean JSON (required for probe mode)"
+    required: false
+    default: ""
+  probe-head-json:
+    description: "Path to head probe-lean JSON (required for probe mode)"
+    required: false
+    default: ""
+  output-path:
+    description: "Output path for specs-delta JSON"
+    required: false
+    default: "specs-delta.json"
+  markdown-output:
+    description: "Output path for specs-delta markdown section"
+    required: false
+    default: ".specs-delta-section.md"
+
+outputs:
+  output-path:
+    description: "Path to specs-delta.json"
+    value: ${{ inputs.output-path }}
+  markdown-path:
+    description: "Path to specs-delta markdown section"
+    value: ${{ inputs.markdown-output }}
+  changed-count:
+    description: "Number of spec changes detected"
+    value: ${{ steps.diff.outputs.changed-count }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        MODE="${{ inputs.mode }}"
+        if [ "$MODE" = "git-diff" ]; then
+          if [ -z "${{ inputs.specs-paths }}" ]; then
+            echo "::error::specs-paths is required for git-diff mode"
+            exit 1
+          fi
+          if [ -z "${{ inputs.base-ref }}" ]; then
+            echo "::error::base-ref is required for git-diff mode"
+            exit 1
+          fi
+        elif [ "$MODE" = "probe" ]; then
+          if [ -z "${{ inputs.probe-base-json }}" ]; then
+            echo "::error::probe-base-json is required for probe mode"
+            exit 1
+          fi
+          if [ -z "${{ inputs.probe-head-json }}" ]; then
+            echo "::error::probe-head-json is required for probe mode"
+            exit 1
+          fi
+        else
+          echo "::error::Unknown mode: $MODE (expected git-diff or probe)"
+          exit 1
+        fi
+
+    - name: Compute specs delta
+      id: diff
+      shell: bash
+      run: |
+        MODE="${{ inputs.mode }}"
+        if [ "$MODE" = "git-diff" ]; then
+          python3 "${{ github.action_path }}/specs-diff.py" git-diff \
+            --specs-paths "${{ inputs.specs-paths }}" \
+            --base-ref "${{ inputs.base-ref }}" \
+            --output "${{ inputs.output-path }}" \
+            --markdown-output "${{ inputs.markdown-output }}"
+        else
+          python3 "${{ github.action_path }}/specs-diff.py" probe \
+            --base-json "${{ inputs.probe-base-json }}" \
+            --head-json "${{ inputs.probe-head-json }}" \
+            --output "${{ inputs.output-path }}" \
+            --markdown-output "${{ inputs.markdown-output }}"
+        fi

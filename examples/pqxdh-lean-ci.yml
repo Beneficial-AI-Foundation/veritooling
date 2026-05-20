@@ -1,0 +1,79 @@
+# Example: PostQuantumeXtendedDiffieHellman-model CI with probe-lean backend
+#
+# This is the zero-config setup for a standard Lean project.
+# Copy to .github/workflows/lean-ci.yml in the PQXDH repo.
+
+name: Lean CI
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+  workflow_dispatch:
+
+env:
+  LEAN_ABORT_ON_PANIC: 1
+
+jobs:
+  build:
+    name: Build & Audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build Lean project
+        uses: leanprover/lean-action@v1
+        with:
+          build: true
+          use-mathlib-cache: auto
+
+      # --- Sorry audit (probe-lean, zero config) ---
+
+      - name: Restore base sorry manifest
+        if: github.event_name == 'pull_request'
+        uses: actions/cache/restore@v4
+        with:
+          key: sorry-manifest-${{ github.event.pull_request.base.ref }}-${{ github.event.pull_request.base.sha }}
+          restore-keys: |
+            sorry-manifest-main-
+          path: sorry-manifest.txt
+
+      - name: Prepare base manifest
+        if: github.event_name == 'pull_request'
+        run: |
+          [ -f sorry-manifest.txt ] && mv sorry-manifest.txt sorry-manifest-base.txt || true
+
+      - name: Sorry audit
+        uses: Beneficial-AI-Foundation/veritooling/sorry-audit-probe@v1
+
+      - name: Save sorry manifest to cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          key: sorry-manifest-main-${{ github.sha }}
+          path: sorry-manifest.txt
+
+      # --- Upload artifacts ---
+
+      - name: Save PR number
+        if: github.event_name == 'pull_request'
+        run: echo "${{ github.event.pull_request.number }}" > pr-number.txt
+
+      - name: Upload verification artifacts
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-audit
+          path: |
+            sorry-manifest.txt
+            sorry-manifest-base.txt
+            pr-number.txt
+          if-no-files-found: ignore
+          retention-days: 1

@@ -1,0 +1,71 @@
+name: "Sorry Audit (collectAxioms)"
+description: >
+  Generate a sorry manifest using Lean's collectAxioms API for transitive
+  axiom-closure analysis.  Detects sorry, trustCompiler, and custom axioms.
+  Requires a prior `lake build`.
+author: "Beneficial AI Foundation"
+
+branding:
+  icon: "search"
+  color: "blue"
+
+inputs:
+  root-module:
+    description: "Root module name to import and scan (e.g., Spqr, PQXDHLean)"
+    required: true
+  specs-prefix:
+    description: >
+      Module prefix for hand-written specs (e.g., Spqr.Specs).
+      If empty, specs-specific sections are skipped and only the
+      full-project audit and manifest are produced.
+    required: false
+    default: ""
+  manifest-path:
+    description: "Output path for the sorry manifest"
+    required: false
+    default: "sorry-manifest.txt"
+
+outputs:
+  manifest-path:
+    description: "Path to the generated sorry manifest"
+    value: ${{ inputs.manifest-path }}
+  sorry-count:
+    description: "Total sorry-tainted declaration count"
+    value: ${{ steps.audit.outputs.sorry-count }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Generate Audit.lean from template
+      id: generate
+      shell: bash
+      run: |
+        TEMPLATE="${{ github.action_path }}/Audit.lean.template"
+        OUTPUT=".veritooling-Audit.lean"
+
+        sed \
+          -e 's/__ROOT_MODULE__/${{ inputs.root-module }}/g' \
+          -e 's/__SPECS_PREFIX__/${{ inputs.specs-prefix }}/g' \
+          -e 's|__MANIFEST_PATH__|${{ inputs.manifest-path }}|g' \
+          "$TEMPLATE" > "$OUTPUT"
+
+        echo "script=$OUTPUT" >> "$GITHUB_OUTPUT"
+
+    - name: Run axiom audit
+      id: audit
+      shell: bash
+      run: |
+        lake env lean "${{ steps.generate.outputs.script }}"
+
+        MANIFEST="${{ inputs.manifest-path }}"
+        if [ -f "$MANIFEST" ]; then
+          COUNT=$(grep -cv '^#\|^$' "$MANIFEST" 2>/dev/null || echo 0)
+        else
+          COUNT=0
+        fi
+        echo "sorry-count=$COUNT" >> "$GITHUB_OUTPUT"
+
+    - name: Cleanup generated script
+      if: always()
+      shell: bash
+      run: rm -f .veritooling-Audit.lean

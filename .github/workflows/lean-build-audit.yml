@@ -1,0 +1,149 @@
+# Reusable workflow: Build a Lean project and generate verification audit
+# artifacts (sorry manifest, specs delta).
+#
+# Consumers call this from their own workflow:
+#
+#   jobs:
+#     build:
+#       uses: Beneficial-AI-Foundation/veritooling/.github/workflows/lean-build-audit.yml@v1
+#       with:
+#         sorry-backend: probe
+
+name: Lean Build & Audit
+
+on:
+  workflow_call:
+    inputs:
+      sorry-backend:
+        description: "Sorry audit backend: collectaxioms or probe"
+        type: string
+        required: false
+        default: "probe"
+      root-module:
+        description: "Root module name (required for collectaxioms backend)"
+        type: string
+        required: false
+        default: ""
+      specs-prefix:
+        description: "Specs module prefix (optional, collectaxioms only)"
+        type: string
+        required: false
+        default: ""
+      specs-delta-mode:
+        description: "Specs delta mode: git-diff, probe, or off"
+        type: string
+        required: false
+        default: "off"
+      specs-paths:
+        description: "Comma-separated specs directory paths (git-diff mode only)"
+        type: string
+        required: false
+        default: ""
+      fail-on-new-sorry:
+        description: "Fail the build if new sorries are introduced"
+        type: boolean
+        required: false
+        default: false
+      lean-build-args:
+        description: "Extra arguments for lake build (passed to lean-action)"
+        type: string
+        required: false
+        default: ""
+      lake-package-directory:
+        description: "Directory containing the Lake package"
+        type: string
+        required: false
+        default: "."
+
+env:
+  LEAN_ABORT_ON_PANIC: 1
+
+jobs:
+  build-and-audit:
+    name: Build & Audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build Lean project
+        uses: leanprover/lean-action@v1
+        with:
+          build: true
+          test: false
+          lint: false
+          use-mathlib-cache: auto
+          build-args: ${{ inputs.lean-build-args }}
+          lake-package-directory: ${{ inputs.lake-package-directory }}
+
+      # --- Sorry audit ---
+
+      - name: Restore base sorry manifest
+        if: github.event_name == 'pull_request'
+        uses: actions/cache/restore@v4
+        with:
+          key: sorry-manifest-${{ github.event.pull_request.base.ref }}-${{ github.event.pull_request.base.sha }}
+          restore-keys: |
+            sorry-manifest-main-
+          path: sorry-manifest.txt
+
+      - name: Prepare base manifest
+        if: github.event_name == 'pull_request'
+        run: |
+          [ -f sorry-manifest.txt ] && mv sorry-manifest.txt sorry-manifest-base.txt || true
+        shell: bash
+
+      - name: Sorry audit (collectaxioms)
+        if: inputs.sorry-backend == 'collectaxioms'
+        uses: Beneficial-AI-Foundation/veritooling/sorry-audit-collectaxioms@v1
+        with:
+          root-module: ${{ inputs.root-module }}
+          specs-prefix: ${{ inputs.specs-prefix }}
+
+      - name: Sorry audit (probe-lean)
+        if: inputs.sorry-backend == 'probe'
+        uses: Beneficial-AI-Foundation/veritooling/sorry-audit-probe@v1
+
+      - name: Save sorry manifest to cache
+        if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        uses: actions/cache/save@v4
+        with:
+          key: sorry-manifest-${{ github.ref_name }}-${{ github.sha }}
+          path: sorry-manifest.txt
+
+      # --- Specs delta (git-diff mode, runs in build context) ---
+
+      - name: Specs delta (git-diff)
+        if: inputs.specs-delta-mode == 'git-diff' && github.event_name == 'pull_request'
+        uses: Beneficial-AI-Foundation/veritooling/specs-delta@v1
+        with:
+          mode: git-diff
+          specs-paths: ${{ inputs.specs-paths }}
+          base-ref: ${{ github.event.pull_request.base.sha }}
+
+      # --- Upload artifacts for the comment workflow ---
+
+      - name: Save PR number
+        if: github.event_name == 'pull_request'
+        run: echo "${{ github.event.pull_request.number }}" > pr-number.txt
+        shell: bash
+
+      - name: Upload verification artifacts
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-audit
+          path: |
+            sorry-manifest.txt
+            sorry-manifest-base.txt
+            specs-delta.json
+            .specs-delta-section.md
+            pr-number.txt
+          if-no-files-found: ignore
+          retention-days: 1

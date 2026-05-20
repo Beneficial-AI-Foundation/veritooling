@@ -1,0 +1,155 @@
+# Self-test workflow for veritooling.
+#
+# Tests the sorry-delta and verification-delta-report actions using
+# synthetic test data. Does not require a Lean environment.
+
+name: Self Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-sorry-delta:
+    name: Test sorry-delta action
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create test manifests
+        run: |
+          cat > base-manifest.txt << 'EOF'
+          # sorry-manifest v1
+          Mod.A decl.alpha direct
+          Mod.B decl.beta transitive
+          Mod.C decl.gamma direct
+          EOF
+
+          cat > head-manifest.txt << 'EOF'
+          # sorry-manifest v1
+          Mod.A decl.alpha direct
+          Mod.B decl.beta transitive
+          Mod.D decl.delta direct
+          EOF
+        shell: bash
+
+      - name: Run sorry-delta
+        uses: ./sorry-delta
+        id: delta
+        with:
+          base-manifest: base-manifest.txt
+          head-manifest: head-manifest.txt
+
+      - name: Verify outputs
+        run: |
+          echo "new-count=${{ steps.delta.outputs.new-count }}"
+          echo "removed-count=${{ steps.delta.outputs.removed-count }}"
+          echo "total-count=${{ steps.delta.outputs.total-count }}"
+
+          [ "${{ steps.delta.outputs.new-count }}" = "1" ] || { echo "FAIL: expected new-count=1"; exit 1; }
+          [ "${{ steps.delta.outputs.removed-count }}" = "1" ] || { echo "FAIL: expected removed-count=1"; exit 1; }
+          [ "${{ steps.delta.outputs.total-count }}" = "3" ] || { echo "FAIL: expected total-count=3"; exit 1; }
+
+          cat .sorry-delta-section.md
+          grep -q "decl.delta" .sorry-delta-section.md || { echo "FAIL: missing decl.delta in output"; exit 1; }
+          grep -q "decl.gamma" .sorry-delta-section.md || { echo "FAIL: missing decl.gamma in removed"; exit 1; }
+        shell: bash
+
+  test-sorry-delta-no-baseline:
+    name: Test sorry-delta without baseline
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create head manifest only
+        run: |
+          cat > head-manifest.txt << 'EOF'
+          # sorry-manifest v1
+          Mod.A decl.alpha direct
+          EOF
+        shell: bash
+
+      - name: Run sorry-delta (no baseline)
+        uses: ./sorry-delta
+        id: delta
+        with:
+          base-manifest: nonexistent-base.txt
+          head-manifest: head-manifest.txt
+
+      - name: Verify no-baseline output
+        run: |
+          cat .sorry-delta-section.md
+          grep -q "No baseline" .sorry-delta-section.md || { echo "FAIL: expected no-baseline message"; exit 1; }
+        shell: bash
+
+  test-verification-report:
+    name: Test verification-delta-report
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create test sections
+        run: |
+          echo "#### Sorry Delta" > .sorry-delta-section.md
+          echo "" >> .sorry-delta-section.md
+          echo "No change in sorry-tainted declarations. (5 total)" >> .sorry-delta-section.md
+
+          echo "#### Specs Delta" > .specs-delta-section.md
+          echo "" >> .specs-delta-section.md
+          echo "2 spec changes detected." >> .specs-delta-section.md
+        shell: bash
+
+      - name: Run verification-delta-report
+        uses: ./verification-delta-report
+        with:
+          sorry-delta-path: .sorry-delta-section.md
+          specs-delta-path: .specs-delta-section.md
+
+      - name: Verify combined output
+        run: |
+          cat .verification-delta-comment.md
+          grep -q "Verification Delta" .verification-delta-comment.md || { echo "FAIL: missing header"; exit 1; }
+          grep -q "Sorry Delta" .verification-delta-comment.md || { echo "FAIL: missing sorry section"; exit 1; }
+          grep -q "Specs Delta" .verification-delta-comment.md || { echo "FAIL: missing specs section"; exit 1; }
+        shell: bash
+
+  test-specs-delta-git-diff:
+    name: Test specs-delta (git-diff mode)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create a test commit with spec changes
+        run: |
+          git config user.email "test@test.com"
+          git config user.name "Test"
+          mkdir -p TestSpecs
+          echo "-- spec file" > TestSpecs/Foo.lean
+          git add TestSpecs/Foo.lean
+          git commit -m "add test spec"
+        shell: bash
+
+      - name: Run specs-delta (git-diff)
+        uses: ./specs-delta
+        id: delta
+        with:
+          mode: git-diff
+          specs-paths: TestSpecs
+          base-ref: HEAD~1
+
+      - name: Verify output
+        run: |
+          cat specs-delta.json
+          python3 -c "
+          import json
+          d = json.load(open('specs-delta.json'))
+          assert d['count'] >= 1, f'Expected at least 1 change, got {d[\"count\"]}'
+          print('PASS')
+          "
+        shell: bash
