@@ -203,23 +203,14 @@ run_cmd liftTermElabM do
   logInfo m!"║  Full project summary                                ║"
   logInfo m!"╚══════════════════════════════════════════════════════╝"
 
-  let mut directSorrySetFull : Std.HashSet Name := {}
-  if !hasSpecsPrefix then
-    for h : i in [:allProjectDecls.size] do
-      let nm := allProjectDecls[i]
-      if (getBodyRefs nm).any (· == ``sorryAx) then
-        directSorrySetFull := directSorrySetFull.insert nm
-
-  let directSorrySetFinal := if hasSpecsPrefix then
-    -- Already computed above in Section 2, but we need it for the manifest.
-    -- Re-scan here since the variable was scoped.
-    let mut s : Std.HashSet Name := {}
-    for h : i in [:allProjectDecls.size] do
-      let nm := allProjectDecls[i]
-      if (getBodyRefs nm).any (· == ``sorryAx) then
-        s := s.insert nm
-    s
-  else directSorrySetFull
+  -- Set of declarations whose own body directly uses `sorry`.  (In the
+  -- specs-prefix path this was also computed in Section 2, but that binding
+  -- is out of scope here, so recompute once unconditionally.)
+  let mut directSorrySetFinal : Std.HashSet Name := {}
+  for h : i in [:allProjectDecls.size] do
+    let nm := allProjectDecls[i]
+    if (getBodyRefs nm).any (· == ``sorryAx) then
+      directSorrySetFinal := directSorrySetFinal.insert nm
 
   let mut projSorry := false
   let mut projTrust := false
