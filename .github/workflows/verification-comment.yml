@@ -54,14 +54,6 @@ jobs:
       actions: read
 
     steps:
-      - name: Checkout veritooling
-        uses: actions/checkout@v4
-        with:
-          repository: Beneficial-AI-Foundation/veritooling
-          sparse-checkout: |
-            sorry-delta/
-            verification-delta-report/
-
       - name: Download verification artifacts
         uses: actions/download-artifact@v4
         with:
@@ -87,7 +79,7 @@ jobs:
 
       - name: Compute sorry delta
         id: sorry
-        uses: ./sorry-delta
+        uses: Beneficial-AI-Foundation/veritooling/sorry-delta@v1
         with:
           base-manifest: artifacts/sorry-manifest-base.txt
           head-manifest: artifacts/sorry-manifest.txt
@@ -96,7 +88,7 @@ jobs:
 
       - name: Combine verification delta report
         if: steps.sorry.outputs.should-comment == 'true'
-        uses: ./verification-delta-report
+        uses: Beneficial-AI-Foundation/veritooling/verification-delta-report@v1
         with:
           sorry-delta-path: .sorry-delta-section.md
           specs-delta-path: artifacts/.specs-delta-section.md
