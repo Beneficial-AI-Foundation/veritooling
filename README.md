@@ -42,6 +42,18 @@ jobs:
 That's it. Every PR gets a sticky **Verification Delta** comment showing new
 and removed sorry-tainted declarations.
 
+To cut comment noise on projects with generated/extracted code, set
+`include-prefix` to your hand-written module prefix(es) — a comment is then
+posted only when a new sorry is introduced in hand-written code:
+
+```yaml
+jobs:
+  comment:
+    uses: Beneficial-AI-Foundation/veritooling/.github/workflows/verification-comment.yml@v1
+    with:
+      include-prefix: MyProject   # ignore sorries in e.g. Extracted.*
+```
+
 ## Actions
 
 Each action is a self-contained composite action. Use the reusable workflows
@@ -81,8 +93,8 @@ and security-critical verification work.
 ```yaml
 - uses: Beneficial-AI-Foundation/veritooling/sorry-audit-collectaxioms@v1
   with:
-    root-module: Spqr
-    specs-prefix: Spqr.Specs   # optional
+    root-module: MyProject
+    specs-prefix: MyProject.Specs   # optional
 ```
 
 ### `probe-lean` -- zero configuration
@@ -125,8 +137,8 @@ The sorry manifest uses a simple versioned text format:
 
 ```
 # sorry-manifest v1
-Spqr.Code.Funs some.declaration.name direct
-Spqr.Specs.Thm another.theorem transitive
+MyProject.Code.Funs some.declaration.name direct
+MyProject.Specs.Thm another.theorem transitive
 ```
 
 See the [sorry-delta README](sorry-delta/) for format details.

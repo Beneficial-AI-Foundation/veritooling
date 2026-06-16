@@ -30,6 +30,16 @@ on:
         type: boolean
         required: false
         default: false
+      include-prefix:
+        description: >
+          Module prefix(es) for hand-written code (comma/whitespace-separated,
+          e.g. "MyProject").  When set, a comment is posted only when a new
+          sorry is introduced in these modules; sorries in generated/extracted
+          libraries are ignored.  Empty (default) always posts the delta
+          comment.
+        type: string
+        required: false
+        default: ""
 
 jobs:
   report:
@@ -76,21 +86,37 @@ jobs:
           echo "number=$PR_NUM" >> "$GITHUB_OUTPUT"
 
       - name: Compute sorry delta
+        id: sorry
         uses: ./sorry-delta
         with:
           base-manifest: artifacts/sorry-manifest-base.txt
           head-manifest: artifacts/sorry-manifest.txt
           fail-on-new: ${{ inputs.fail-on-new-sorry }}
+          include-prefix: ${{ inputs.include-prefix }}
 
       - name: Combine verification delta report
+        if: steps.sorry.outputs.should-comment == 'true'
         uses: ./verification-delta-report
         with:
           sorry-delta-path: .sorry-delta-section.md
           specs-delta-path: artifacts/.specs-delta-section.md
 
       - name: Post PR comment
+        if: steps.sorry.outputs.should-comment == 'true'
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           header: verification-delta
           number: ${{ steps.pr.outputs.number }}
           path: .verification-delta-comment.md
+
+      # When commenting is gated off (e.g. a later push removed the
+      # hand-written sorry), mark any earlier comment outdated instead of
+      # leaving stale content on the PR.
+      - name: Hide stale PR comment
+        if: steps.sorry.outputs.should-comment != 'true'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: verification-delta
+          number: ${{ steps.pr.outputs.number }}
+          hide: true
+          hide_classify: OUTDATED

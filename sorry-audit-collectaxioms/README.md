@@ -13,7 +13,7 @@ transitive axiom-closure analysis.
 ## Prerequisites
 
 - `lake build` must have completed successfully before this action runs
-- The root module must be importable (all `.olean` files built)
+- Every root module must be importable (all `.olean` files built)
 
 ## Usage
 
@@ -24,15 +24,25 @@ transitive axiom-closure analysis.
 
 - uses: Beneficial-AI-Foundation/veritooling/sorry-audit-collectaxioms@v1
   with:
-    root-module: Spqr
-    specs-prefix: Spqr.Specs   # optional
+    root-module: MyProject
+    specs-prefix: MyProject.Specs   # optional
+```
+
+To audit a project that keeps extracted code in a separate top-level
+library, list every root (comma- or whitespace-separated):
+
+```yaml
+- uses: Beneficial-AI-Foundation/veritooling/sorry-audit-collectaxioms@v1
+  with:
+    root-module: MyProject,Extracted
+    specs-prefix: MyProject.Specs
 ```
 
 ## Inputs
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `root-module` | yes | -- | Root module name (e.g., `Spqr`) |
+| `root-module` | yes | -- | Root module name(s) to scan; comma- or whitespace-separated for several (e.g. `MyProject` or `MyProject,Extracted`) |
 | `specs-prefix` | no | `""` | Specs module prefix for detailed audit sections |
 | `manifest-path` | no | `sorry-manifest.txt` | Output manifest path |
 
@@ -46,7 +56,7 @@ transitive axiom-closure analysis.
 ## How It Works
 
 1. Generates a Lean script from a parameterized template, substituting the
-   root module name and specs prefix
+   root module name(s) and specs prefix
 2. Runs `lake env lean <script>` in the project environment
 3. The script uses `Lean.collectAxioms` on every project declaration to find
    those whose transitive axiom closure includes `sorryAx`
