@@ -4,7 +4,12 @@ report suitable for a PR comment or GitHub Actions Job Summary.
 
 Usage:
     python3 sorry-diff.py <base-manifest> <head-manifest> [--output PATH]
-                          [--fail-on-new] [--summary]
+                          [--fail-on-new] [--summary] [--include-prefix PREFIXES]
+
+When --include-prefix is given (comma- or whitespace-separated module
+prefixes), the delta — counts, table, the `should-comment` signal, and
+--fail-on-new — is restricted to declarations in those modules.  Use it to
+report only hand-written code and ignore generated/extracted libraries.
 
 Exit codes:
     0  success (or no new sorries)
@@ -68,6 +73,23 @@ def parse_line(line: str) -> tuple[str, str, str]:
         parts[1] if len(parts) > 1 else "",
         parts[2] if len(parts) > 2 else "",
     )
+
+
+def parse_prefixes(raw: str) -> list[str]:
+    """Split a comma- or whitespace-separated prefix list into clean tokens."""
+    return [p for p in raw.replace(",", " ").split() if p]
+
+
+def module_matches(module: str, prefixes: list[str]) -> bool:
+    """True if `module` equals or descends from any of `prefixes`."""
+    return any(module == p or module.startswith(p + ".") for p in prefixes)
+
+
+def filter_lines(lines: list[str], prefixes: list[str]) -> list[str]:
+    """Keep only manifest lines whose module column matches a prefix."""
+    if not prefixes:
+        return lines
+    return [l for l in lines if module_matches(parse_line(l)[0], prefixes)]
 
 
 def build_markdown(
@@ -143,14 +165,21 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path(DEFAULT_OUTPUT), help="Output markdown path")
     parser.add_argument("--fail-on-new", action="store_true", help="Exit 1 if new sorries found")
     parser.add_argument("--summary", action="store_true", help="Also write to GITHUB_STEP_SUMMARY")
+    parser.add_argument(
+        "--include-prefix", default="",
+        help="Comma/whitespace-separated module prefixes to report on "
+             "(e.g. hand-written code); others are ignored",
+    )
     args = parser.parse_args()
 
     if not args.head_manifest.exists():
         print(f"Error: head manifest not found at '{args.head_manifest}'", file=sys.stderr)
         sys.exit(2)
 
+    prefixes = parse_prefixes(args.include_prefix)
+
     head_decls, _ = read_manifest(args.head_manifest)
-    total = len(head_decls)
+    total = len(filter_lines(list(head_decls.values()), prefixes))
 
     base_decls, base_version = read_manifest(args.base_manifest)
     has_baseline = args.base_manifest.exists() and base_version is not None
@@ -158,8 +187,8 @@ def main() -> None:
     if has_baseline:
         new_keys = sorted(set(head_decls) - set(base_decls))
         removed_keys = sorted(set(base_decls) - set(head_decls))
-        new_lines = [head_decls[k] for k in new_keys]
-        removed_lines = [base_decls[k] for k in removed_keys]
+        new_lines = filter_lines([head_decls[k] for k in new_keys], prefixes)
+        removed_lines = filter_lines([base_decls[k] for k in removed_keys], prefixes)
     else:
         new_lines = []
         removed_lines = []
@@ -177,6 +206,14 @@ def main() -> None:
     new_count = len(new_lines)
     removed_count = len(removed_lines)
 
+    # When a prefix filter is active, only a newly-introduced sorry within
+    # those modules warrants a comment.  Without a filter, preserve the
+    # always-report behaviour so existing consumers are unaffected.
+    if prefixes:
+        should_comment = has_baseline and new_count > 0
+    else:
+        should_comment = True
+
     gh_output = os.environ.get("GITHUB_OUTPUT", "")
     if gh_output:
         with open(gh_output, "a") as f:
@@ -184,8 +221,10 @@ def main() -> None:
             f.write(f"removed-count={removed_count}\n")
             f.write(f"total-count={total}\n")
             f.write(f"comment-path={args.output}\n")
+            f.write(f"should-comment={'true' if should_comment else 'false'}\n")
 
-    print(f"Sorry delta: +{new_count} -{removed_count} ({total} total)")
+    scope = f" in {','.join(prefixes)}" if prefixes else ""
+    print(f"Sorry delta{scope}: +{new_count} -{removed_count} ({total} total)")
 
     if args.fail_on_new and new_count > 0:
         print(f"::error::{new_count} new sorry-tainted declaration(s) introduced")

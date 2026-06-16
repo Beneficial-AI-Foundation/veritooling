@@ -67,10 +67,10 @@ jobs:
     uses: Beneficial-AI-Foundation/veritooling/.github/workflows/lean-build-audit.yml@v1
     with:
       sorry-backend: collectaxioms
-      root-module: Spqr                   # your root module
-      specs-prefix: Spqr.Specs            # your specs prefix
+      root-module: MyProject                   # your root module(s); e.g. "MyProject,Extracted"
+      specs-prefix: MyProject.Specs            # your specs prefix
       specs-delta-mode: git-diff
-      specs-paths: Spqr/Specs             # directory containing spec files
+      specs-paths: MyProject/Specs             # directory containing spec files
 ```
 
 ### Step 2: Add the comment workflow
@@ -128,8 +128,8 @@ Replace your audit steps with the veritooling action.
 ```yaml
 - uses: Beneficial-AI-Foundation/veritooling/sorry-audit-collectaxioms@v1
   with:
-    root-module: Spqr
-    specs-prefix: Spqr.Specs
+    root-module: MyProject
+    specs-prefix: MyProject.Specs
 ```
 
 Keep your existing baseline caching and artifact upload steps.

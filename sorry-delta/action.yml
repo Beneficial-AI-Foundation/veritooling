@@ -19,6 +19,15 @@ inputs:
     description: "Exit with error if new sorry-tainted declarations are found"
     required: false
     default: "false"
+  include-prefix:
+    description: >
+      Comma- or whitespace-separated module prefix(es) to report on, e.g.
+      hand-written code ("MyProject").  When set, the delta and the
+      should-comment signal cover only these modules, so sorries in
+      generated/extracted libraries are ignored.  Empty (default) reports on
+      all modules.
+    required: false
+    default: ""
   output-path:
     description: "Path for the output markdown section"
     required: false
@@ -26,17 +35,23 @@ inputs:
 
 outputs:
   new-count:
-    description: "Number of new sorry-tainted declarations"
+    description: "Number of new sorry-tainted declarations (scoped to include-prefix when set)"
     value: ${{ steps.diff.outputs.new-count }}
   removed-count:
-    description: "Number of removed sorry-tainted declarations"
+    description: "Number of removed sorry-tainted declarations (scoped to include-prefix when set)"
     value: ${{ steps.diff.outputs.removed-count }}
   total-count:
-    description: "Total sorry-tainted declarations in head"
+    description: "Total sorry-tainted declarations in head (scoped to include-prefix when set)"
     value: ${{ steps.diff.outputs.total-count }}
   comment-path:
     description: "Path to the generated markdown section"
     value: ${{ steps.diff.outputs.comment-path }}
+  should-comment:
+    description: >
+      "true" when a PR comment is warranted.  With include-prefix set, true
+      only when a new sorry was introduced in those modules; otherwise always
+      true.
+    value: ${{ steps.diff.outputs.should-comment }}
 
 runs:
   using: "composite"
@@ -44,6 +59,8 @@ runs:
     - name: Compute sorry delta
       id: diff
       shell: bash
+      env:
+        INCLUDE_PREFIX: ${{ inputs.include-prefix }}
       run: |
         FAIL_FLAG=""
         if [ "${{ inputs.fail-on-new }}" = "true" ]; then
@@ -54,4 +71,5 @@ runs:
           "${{ inputs.head-manifest }}" \
           --output "${{ inputs.output-path }}" \
           --summary \
+          --include-prefix "$INCLUDE_PREFIX" \
           $FAIL_FLAG

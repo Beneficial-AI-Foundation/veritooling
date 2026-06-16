@@ -11,11 +11,16 @@ branding:
 
 inputs:
   root-module:
-    description: "Root module name to import and scan (e.g., Spqr, PQXDHLean)"
+    description: >
+      Root module name(s) to import and scan.  Accepts one or several,
+      separated by commas or whitespace (e.g. "MyProject" or
+      "MyProject,Extracted").  A declaration counts as in-project when its
+      module equals or descends from any of these roots.  Use multiple roots
+      for projects that keep extracted code in a separate top-level library.
     required: true
   specs-prefix:
     description: >
-      Module prefix for hand-written specs (e.g., Spqr.Specs).
+      Module prefix for hand-written specs (e.g., MyProject.Specs).
       If empty, specs-specific sections are skipped and only the
       full-project audit and manifest are produced.
     required: false
@@ -39,15 +44,41 @@ runs:
     - name: Generate Audit.lean from template
       id: generate
       shell: bash
+      env:
+        ROOT_MODULE: ${{ inputs.root-module }}
+        SPECS_PREFIX: ${{ inputs.specs-prefix }}
+        MANIFEST_PATH: ${{ inputs.manifest-path }}
       run: |
         TEMPLATE="${{ github.action_path }}/Audit.lean.template"
         OUTPUT=".veritooling-Audit.lean"
 
+        # Split root-module on commas and whitespace into a list of roots.
+        read -r -a ROOTS <<< "$(echo "$ROOT_MODULE" | tr ',' ' ')"
+        if [ "${#ROOTS[@]}" -eq 0 ]; then
+          echo "::error::root-module is required (one or more module names)"
+          exit 1
+        fi
+
+        # Build the Lean import block (one line per root) and the
+        # `#[`A, `B]` name-array contents the template expects.
+        IMPORTS=""
+        NAMES=""
+        for r in "${ROOTS[@]}"; do
+          [ -z "$r" ] && continue
+          IMPORTS="${IMPORTS}import ${r}\n"
+          [ -n "$NAMES" ] && NAMES="${NAMES}, "
+          NAMES="${NAMES}\`${r}"
+        done
+
+        # Substitute inline tokens with sed; expand the multi-line import
+        # block with awk (sed handles multi-line replacements awkwardly).
         sed \
-          -e 's/__ROOT_MODULE__/${{ inputs.root-module }}/g' \
-          -e 's/__SPECS_PREFIX__/${{ inputs.specs-prefix }}/g' \
-          -e 's|__MANIFEST_PATH__|${{ inputs.manifest-path }}|g' \
-          "$TEMPLATE" > "$OUTPUT"
+          -e "s/__SPECS_PREFIX__/${SPECS_PREFIX}/g" \
+          -e "s|__MANIFEST_PATH__|${MANIFEST_PATH}|g" \
+          -e "s/__ROOT_NAMES__/${NAMES}/g" \
+          "$TEMPLATE" \
+          | awk -v imp="$IMPORTS" '{ gsub(/__ROOT_IMPORTS__/, imp); print }' \
+          > "$OUTPUT"
 
         echo "script=$OUTPUT" >> "$GITHUB_OUTPUT"
 

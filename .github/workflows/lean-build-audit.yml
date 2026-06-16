@@ -20,7 +20,7 @@ on:
         required: false
         default: "probe"
       root-module:
-        description: "Root module name (required for collectaxioms backend)"
+        description: "Root module name(s), comma- or whitespace-separated (required for collectaxioms backend)"
         type: string
         required: false
         default: ""
