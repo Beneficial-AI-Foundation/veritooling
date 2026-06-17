@@ -67,9 +67,3 @@ including verification status transitions (newly verified, newly broken).
 
 For probe mode, each change entry includes `declaration`, `module`,
 `status`, and `verification-status` fields.
-
-## Security
-
-In `git-diff` mode, this action runs `git diff` which is a read-only operation.
-In `probe` mode, it reads JSON files. Neither mode has side effects beyond
-writing output files.

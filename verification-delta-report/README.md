@@ -49,8 +49,3 @@ Post the resulting file as a sticky PR comment:
     number: ${{ steps.pr.outputs.number }}
     path: .verification-delta-comment.md
 ```
-
-## Security
-
-This action performs pure computation: it reads markdown files and writes a
-combined markdown file. No permissions required beyond file system access.

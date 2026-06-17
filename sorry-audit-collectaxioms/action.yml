@@ -18,11 +18,16 @@ inputs:
       module equals or descends from any of these roots.  Use multiple roots
       for projects that keep extracted code in a separate top-level library.
     required: true
-  specs-prefix:
+  exclude-module:
     description: >
-      Module prefix for hand-written specs (e.g., MyProject.Specs).
-      If empty, specs-specific sections are skipped and only the
-      full-project audit and manifest are produced.
+      Module name(s) to omit from the detailed per-declaration audit
+      (Sections 1 and 2).  Accepts one or several, separated by commas or
+      whitespace (e.g. "Extracted" or "Extracted,Generated").  A module is
+      excluded when it equals or descends from any of these.  Use it to keep
+      churn-heavy generated/extracted code out of the detailed view; such
+      code is still scanned and still appears in the full-project summary and
+      the sorry manifest.  If empty, the detailed audit covers every
+      in-project module.
     required: false
     default: ""
   manifest-path:
@@ -46,7 +51,7 @@ runs:
       shell: bash
       env:
         ROOT_MODULE: ${{ inputs.root-module }}
-        SPECS_PREFIX: ${{ inputs.specs-prefix }}
+        EXCLUDE_MODULE: ${{ inputs.exclude-module }}
         MANIFEST_PATH: ${{ inputs.manifest-path }}
       run: |
         TEMPLATE="${{ github.action_path }}/Audit.lean.template"
@@ -70,10 +75,20 @@ runs:
           NAMES="${NAMES}\`${r}"
         done
 
+        # Split exclude-module on commas and whitespace into the matching
+        # `#[`A, `B]` name-array contents (empty -> empty array).
+        read -r -a EXCLUDES <<< "$(echo "$EXCLUDE_MODULE" | tr ',' ' ')"
+        EXCLUDE_NAMES=""
+        for e in "${EXCLUDES[@]}"; do
+          [ -z "$e" ] && continue
+          [ -n "$EXCLUDE_NAMES" ] && EXCLUDE_NAMES="${EXCLUDE_NAMES}, "
+          EXCLUDE_NAMES="${EXCLUDE_NAMES}\`${e}"
+        done
+
         # Substitute inline tokens with sed; expand the multi-line import
         # block with awk (sed handles multi-line replacements awkwardly).
         sed \
-          -e "s/__SPECS_PREFIX__/${SPECS_PREFIX}/g" \
+          -e "s/__EXCLUDE_NAMES__/${EXCLUDE_NAMES}/g" \
           -e "s|__MANIFEST_PATH__|${MANIFEST_PATH}|g" \
           -e "s/__ROOT_NAMES__/${NAMES}/g" \
           "$TEMPLATE" \

@@ -63,9 +63,3 @@ ModuleName another.declaration transitive
 - Each subsequent line: `<Module> <Declaration> <direct|transitive>`
 - Sorted lexicographically
 - Declaration name (column 2) is the identity key
-
-## Security
-
-This action performs pure computation: it reads two text files and writes a
-markdown file. It needs no permissions beyond file system access. Run it in the
-`workflow_run`-triggered job alongside `verification-delta-report`.

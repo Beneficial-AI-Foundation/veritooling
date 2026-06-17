@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+
+# Security report kept locally, not published
+docs/SECURITY.md

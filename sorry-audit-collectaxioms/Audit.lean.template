@@ -12,6 +12,13 @@ Multiple roots are supported (e.g. hand-written code plus a separate
 extracted library); a declaration counts as in-project if its module equals
 or descends from any configured root.
 
+The detailed per-declaration audit (Sections 1 and 2) covers all in-project
+modules by default.  Pass exclude-module(s) to omit churn-heavy subtrees
+(e.g. generated/extracted code) from that detail; a module is excluded when
+it equals or descends from any exclude entry.  The full-project summary and
+the sorry manifest always cover every in-project module, regardless of
+exclusions.
+
 Reference: https://lean-lang.org/doc/reference/latest/ValidatingProofs/
 -/
 __ROOT_IMPORTS__
@@ -26,31 +33,38 @@ run_cmd liftTermElabM do
   let moduleNames := env.header.moduleNames
 
   let rootNames : Array Name := #[__ROOT_NAMES__]
-  let specsPrefix := "__SPECS_PREFIX__"
-  let hasSpecsPrefix := specsPrefix != ""
+  let excludeNames : Array Name := #[__EXCLUDE_NAMES__]
+
+  -- A module matches a name list if it equals or descends from any entry.
+  let matchesAny : Array Name → Name → Bool := fun names m =>
+    names.any (fun r => m == r || m.toString.startsWith (r.toString ++ "."))
 
   let mut projectModuleIdxs : Std.HashSet Nat := {}
-  let mut specsModuleIdxs : Std.HashSet Nat := {}
+  let mut focusModuleIdxs : Std.HashSet Nat := {}
   let mut projectModuleNames : Array Name := #[]
-  let mut specsModuleNames : Array Name := #[]
+  let mut focusModuleNames : Array Name := #[]
   for h : i in [:moduleNames.size] do
     let m := moduleNames[i]
-    if rootNames.any (fun r => m == r || m.toString.startsWith (r.toString ++ ".")) then
+    if matchesAny rootNames m then
       projectModuleIdxs := projectModuleIdxs.insert i
       projectModuleNames := projectModuleNames.push m
-      if hasSpecsPrefix && m.toString.startsWith specsPrefix then
-        specsModuleIdxs := specsModuleIdxs.insert i
-        specsModuleNames := specsModuleNames.push m
+      -- In-focus for the detailed audit unless explicitly excluded.
+      unless matchesAny excludeNames m do
+        focusModuleIdxs := focusModuleIdxs.insert i
+        focusModuleNames := focusModuleNames.push m
 
   logInfo m!"=== Project modules detected ==="
   for h : i in [:projectModuleNames.size] do
     logInfo m!"  {projectModuleNames[i]}"
-  if hasSpecsPrefix then
-    logInfo m!"\n=== Specs modules ==="
-    for h : i in [:specsModuleNames.size] do
-      logInfo m!"  {specsModuleNames[i]}"
+  logInfo m!"\n=== In-focus modules (detailed audit) ==="
+  for h : i in [:focusModuleNames.size] do
+    logInfo m!"  {focusModuleNames[i]}"
+  unless excludeNames.isEmpty do
+    logInfo m!"\n=== Excluded from detailed audit ==="
+    for h : i in [:excludeNames.size] do
+      logInfo m!"  {excludeNames[i]}"
 
-  let (moduleLookup, specsThms, allProjectDecls) :=
+  let (moduleLookup, focusThms, allProjectDecls) :=
     env.constants.fold
       (init := (({} : Std.HashMap Name Name), (#[] : Array Name), (#[] : Array Name)))
     fun acc nm ci =>
@@ -62,8 +76,8 @@ run_cmd liftTermElabM do
           match ci with
           | .thmInfo _ | .defnInfo _ | .opaqueInfo _ | .axiomInfo _ =>
             let ml := ml.insert nm (moduleNames[idx.toNat]?.getD `unknown)
-            let inSpecs := specsModuleIdxs.contains idx.toNat
-            let st := if inSpecs then
+            let inFocus := focusModuleIdxs.contains idx.toNat
+            let st := if inFocus then
               match ci with | .thmInfo _ | .axiomInfo _ => st.push nm | _ => st
             else st
             (ml, st, pa.push nm)
@@ -86,44 +100,44 @@ run_cmd liftTermElabM do
     let usedAxioms ← Lean.collectAxioms nm
     axiomCache := axiomCache.insert nm usedAxioms
 
-  -- Section 1: Hand-written specs (optional, only if specs-prefix is set)
-  if hasSpecsPrefix then
+  -- Section 1: detailed axiom & sorry audit of the in-focus modules.
+  if !focusModuleNames.isEmpty then
     logInfo m!"\n╔══════════════════════════════════════════════════════╗"
-    logInfo m!"║  SECTION 1: Hand-written specs                       ║"
+    logInfo m!"║  SECTION 1: Axiom & sorry audit                      ║"
     logInfo m!"╚══════════════════════════════════════════════════════╝"
-    logInfo m!"Theorems+axioms in specs: {specsThms.size}"
+    logInfo m!"Theorems+axioms in focus: {focusThms.size}"
 
-    let mut specsSorry := false
-    let mut specsTrust := false
-    let mut specsResults : Array (Name × Array Name) := #[]
-    let mut specsAllCustom : Std.HashSet Name := {}
+    let mut focusSorry := false
+    let mut focusTrust := false
+    let mut focusResults : Array (Name × Array Name) := #[]
+    let mut focusAllCustom : Std.HashSet Name := {}
 
-    for h : i in [:specsThms.size] do
-      let nm := specsThms[i]
+    for h : i in [:focusThms.size] do
+      let nm := focusThms[i]
       let usedAxioms := axiomCache[nm]?.getD #[]
       let nonBuiltin := usedAxioms.filter fun a => !isBuiltinAxiom a
       if nonBuiltin.size > 0 then
-        specsResults := specsResults.push (nm, nonBuiltin)
-      if usedAxioms.any (· == ``sorryAx) then specsSorry := true
-      if usedAxioms.any (· == ``Lean.trustCompiler) then specsTrust := true
+        focusResults := focusResults.push (nm, nonBuiltin)
+      if usedAxioms.any (· == ``sorryAx) then focusSorry := true
+      if usedAxioms.any (· == ``Lean.trustCompiler) then focusTrust := true
       for h2 : j in [:nonBuiltin.size] do
-        specsAllCustom := specsAllCustom.insert nonBuiltin[j]
+        focusAllCustom := focusAllCustom.insert nonBuiltin[j]
 
-    if specsSorry then logInfo m!"⚠  `sorry` found in specs!"
-    else logInfo m!"✓  No `sorry` in specs."
-    if specsTrust then logInfo m!"⚠  `Lean.trustCompiler` found in specs."
-    else logInfo m!"✓  No `Lean.trustCompiler` in specs."
-    logInfo m!"\nSpecs with non-builtin axioms: {specsResults.size} / {specsThms.size}"
+    if focusSorry then logInfo m!"⚠  `sorry` found in in-focus code!"
+    else logInfo m!"✓  No `sorry` in in-focus code."
+    if focusTrust then logInfo m!"⚠  `Lean.trustCompiler` found in in-focus code."
+    else logInfo m!"✓  No `Lean.trustCompiler` in in-focus code."
+    logInfo m!"\nDeclarations with non-builtin axioms: {focusResults.size} / {focusThms.size}"
 
-    for h : i in [:specsResults.size] do
-      let (nm, axioms) := specsResults[i]
+    for h : i in [:focusResults.size] do
+      let (nm, axioms) := focusResults[i]
       let mut msg := m!"\n  [{modOf nm}] {nm}"
       for h2 : j in [:axioms.size] do
         msg := msg ++ m!"\n    └─ {axioms[j]}"
       logInfo msg
 
-    logInfo m!"\n--- Custom axioms used across all specs ---"
-    for a in specsAllCustom.toArray do
+    logInfo m!"\n--- Custom axioms used across in-focus code ---"
+    for a in focusAllCustom.toArray do
       logInfo m!"  • {a}"
 
     -- Section 2: Where does sorry come from?
@@ -143,13 +157,13 @@ run_cmd liftTermElabM do
     for h : i in [:directSorryList.size] do
       logInfo m!"  [{modOf directSorryList[i]}] {directSorryList[i]}"
 
-    logInfo m!"\n--- How `sorry` reaches each specs theorem ---"
+    logInfo m!"\n--- How `sorry` reaches each in-focus theorem ---"
 
-    let mut sorrySpecCount : Nat := 0
-    for h : i in [:specsResults.size] do
-      let (nm, axioms) := specsResults[i]
+    let mut sorryFocusCount : Nat := 0
+    for h : i in [:focusResults.size] do
+      let (nm, axioms) := focusResults[i]
       unless axioms.any (· == ``sorryAx) do continue
-      sorrySpecCount := sorrySpecCount + 1
+      sorryFocusCount := sorryFocusCount + 1
 
       let mut msg := m!"[{modOf nm}] {nm}"
 
@@ -196,7 +210,7 @@ run_cmd liftTermElabM do
       logInfo msg
       logInfo m!""
 
-    logInfo m!"Sorry-tainted specs: {sorrySpecCount} / {specsThms.size}"
+    logInfo m!"Sorry-tainted in-focus declarations: {sorryFocusCount} / {focusThms.size}"
 
   -- Section 3: Full project summary
   logInfo m!"\n╔══════════════════════════════════════════════════════╗"
@@ -204,7 +218,7 @@ run_cmd liftTermElabM do
   logInfo m!"╚══════════════════════════════════════════════════════╝"
 
   -- Set of declarations whose own body directly uses `sorry`.  (In the
-  -- specs-prefix path this was also computed in Section 2, but that binding
+  -- in-focus path this was also computed in Section 2, but that binding
   -- is out of scope here, so recompute once unconditionally.)
   let mut directSorrySetFinal : Std.HashSet Name := {}
   for h : i in [:allProjectDecls.size] do
