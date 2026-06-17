@@ -48,9 +48,3 @@ dependencies). Transitive propagation is planned as
 1. Runs `probe-lean extract` via the probe-lean GitHub Action
 2. Converts the probe-lean JSON output to `# sorry-manifest v1` format
 3. Maps `verification-status` values to `direct` / `transitive` kinds
-
-## Security
-
-This action runs probe-lean, which builds a separate Lean binary and analyzes
-the project environment. It should run after a trusted `lake build` step.
-The probe-lean source is checked out from a pinned ref.
