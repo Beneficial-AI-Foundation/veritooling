@@ -17,7 +17,14 @@ inputs:
       "MyProject,Extracted").  A declaration counts as in-project when its
       module equals or descends from any of these roots.  Use multiple roots
       for projects that keep extracted code in a separate top-level library.
-    required: true
+
+      If omitted, the roots are derived from the `defaultTargets` of a
+      `lakefile.toml` in the working directory, keeping only `lean_lib`
+      targets (`lean_exe` targets are not library roots).  Projects using
+      `lakefile.lean`, or whose default build targets differ from the modules
+      they want audited, must set this explicitly.
+    required: false
+    default: ""
   exclude-module:
     description: >
       Module name(s) to omit from the detailed per-declaration audit
@@ -56,6 +63,48 @@ runs:
       run: |
         TEMPLATE="${{ github.action_path }}/Audit.lean.template"
         OUTPUT=".veritooling-Audit.lean"
+
+        # When root-module is not given, derive it from the lakefile's
+        # defaultTargets, keeping only lean_lib targets (lean_exe targets are
+        # not library roots).
+        if [ -z "${ROOT_MODULE// }" ]; then
+          LAKEFILE="lakefile.toml"
+          if [ ! -f "$LAKEFILE" ]; then
+            echo "::error::root-module not set and $LAKEFILE not found — pass root-module explicitly (lakefile.lean projects are not auto-detected)"
+            exit 1
+          fi
+          # defaultTargets array contents (handles single- and multi-line forms).
+          DT_NAMES=$(awk '
+            /^[[:space:]]*defaultTargets[[:space:]]*=/ { flag=1 }
+            flag                                       { print }
+            /\]/                                       { if (flag) flag=0 }
+          ' "$LAKEFILE" | grep -oE '"[^"]+"' | tr -d '"')
+          # lean_lib target names.
+          LIB_NAMES=$(awk '
+            /^\[\[lean_lib\]\]/ { inlib=1; next }
+            /^\[\[/             { inlib=0 }
+            inlib && /^[[:space:]]*name[[:space:]]*=/ {
+              l=$0; sub(/^[^"]*"/,"",l); sub(/".*/,"",l); print l
+            }
+          ' "$LAKEFILE")
+          # Keep the defaultTargets that are lean_lib targets, preserving order.
+          DETECTED=""
+          for t in $DT_NAMES; do
+            for lib in $LIB_NAMES; do
+              if [ "$t" = "$lib" ]; then
+                [ -n "$DETECTED" ] && DETECTED="${DETECTED},"
+                DETECTED="${DETECTED}${t}"
+                break
+              fi
+            done
+          done
+          if [ -z "$DETECTED" ]; then
+            echo "::error::could not derive root-module from $LAKEFILE defaultTargets (no matching lean_lib targets) — pass root-module explicitly"
+            exit 1
+          fi
+          echo "Derived root-module from $LAKEFILE defaultTargets: $DETECTED"
+          ROOT_MODULE="$DETECTED"
+        fi
 
         # Split root-module on commas and whitespace into a list of roots.
         read -r -a ROOTS <<< "$(echo "$ROOT_MODULE" | tr ',' ' ')"

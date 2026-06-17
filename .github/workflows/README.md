@@ -98,7 +98,8 @@ job's `with:` block:
 ```yaml
     with:
       sorry-backend: collectaxioms
-      root-module: MyProject               # one or more roots, comma-separated
+      root-module: MyProject               # optional: one or more roots. If omitted,
+                                           # auto-detected from lakefile.toml defaultTargets
       exclude-module: Extracted            # optional: keep generated code out of
                                            # the detailed view (Sections 1–2)
 ```
