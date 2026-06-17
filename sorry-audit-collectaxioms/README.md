@@ -23,8 +23,8 @@ transitive axiom-closure analysis.
     build: true
 
 - uses: Beneficial-AI-Foundation/veritooling/sorry-audit-collectaxioms@v1
-  with:
-    root-module: MyProject
+  # root-module is auto-detected from lakefile.toml `defaultTargets`;
+  # set it explicitly to override.
 ```
 
 By default the detailed audit covers every in-project module.  For a project
@@ -43,7 +43,7 @@ library, list every root and exclude the generated one from the detailed view
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `root-module` | yes | -- | Root module name(s) to scan; comma- or whitespace-separated for several (e.g. `MyProject` or `MyProject,Extracted`) |
+| `root-module` | no | auto | Root module name(s) to scan; comma- or whitespace-separated for several (e.g. `MyProject` or `MyProject,Extracted`). If omitted, derived from `lakefile.toml` `defaultTargets` (lean_lib targets only); required for `lakefile.lean` projects |
 | `exclude-module` | no | `""` | Module(s) to omit from the detailed audit (Sections 1 & 2); comma- or whitespace-separated. Excluded code is still scanned and still appears in the summary and manifest |
 | `manifest-path` | no | `sorry-manifest.txt` | Output manifest path |
 
@@ -56,9 +56,11 @@ library, list every root and exclude the generated one from the detailed view
 
 ## How It Works
 
-1. Generates a Lean script from a parameterized template, substituting the
+1. Resolves the root module(s): uses `root-module` if given, otherwise reads
+   `defaultTargets` from `lakefile.toml` (lean_lib targets only)
+2. Generates a Lean script from a parameterized template, substituting the
    root module name(s) and any excluded module(s)
-2. Runs `lake env lean <script>` in the project environment
-3. The script uses `Lean.collectAxioms` on every project declaration to find
+3. Runs `lake env lean <script>` in the project environment
+4. The script uses `Lean.collectAxioms` on every project declaration to find
    those whose transitive axiom closure includes `sorryAx`
-4. Produces a `# sorry-manifest v1` file
+5. Produces a `# sorry-manifest v1` file
