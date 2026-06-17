@@ -24,8 +24,8 @@ on:
         type: string
         required: false
         default: ""
-      specs-prefix:
-        description: "Specs module prefix (optional, collectaxioms only)"
+      exclude-module:
+        description: "Module(s) to omit from the detailed audit, comma- or whitespace-separated (optional, collectaxioms only)"
         type: string
         required: false
         default: ""
@@ -104,7 +104,7 @@ jobs:
         uses: Beneficial-AI-Foundation/veritooling/sorry-audit-collectaxioms@v1
         with:
           root-module: ${{ inputs.root-module }}
-          specs-prefix: ${{ inputs.specs-prefix }}
+          exclude-module: ${{ inputs.exclude-module }}
 
       - name: Sorry audit (probe-lean)
         if: inputs.sorry-backend == 'probe'
