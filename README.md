@@ -27,7 +27,3 @@ them individually.
 | [`specs-delta`](actions/specs-delta/) | Generation | Detect specification-theorem changes. |
 | [`sorry-delta`](actions/sorry-delta/) | Reporting | Diff sorry manifests and format the delta. |
 | [`verification-delta-report`](actions/verification-delta-report/) | Reporting | Combine deltas into one PR comment. |
-
-## License
-
-Apache-2.0
