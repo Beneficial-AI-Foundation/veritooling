@@ -43,18 +43,23 @@ lake build  ──▶  audit (manifest + console report)  ──▶  delta vs ba
 
 When the `collectaxioms` backend runs it logs four sections:
 
-1. **Axiom & sorry audit** — per declaration, the non-builtin axioms it depends
-   on, and whether `sorry` or `Lean.trustCompiler` appear. Covers the *in-focus*
-   modules (see `exclude-module` below).
-2. **Where does `sorry` come from?** — every declaration whose own body uses
-   `sorry`, then a BFS path showing how `sorry` reaches each in-focus theorem.
-3. **Full project summary** — aggregate counts over *all* root modules.
+1. **Axiom & sorry audit** — for each audited **theorem/axiom**, the non-builtin
+   axioms its proof relies on, and whether `sorry` / `Lean.trustCompiler` appear.
+   Counts theorems and axioms only (not definitions).
+2. **Where does `sorry` come from?** — for each audited theorem/axiom whose proof
+   depends on `sorry`, the BFS chain down to the declaration that contains it.
+3. **Full project summary** — aggregate counts over *all* declarations (theorems,
+   axioms **and** definitions) across every root module.
 4. **Sorry manifest** — the machine-readable `sorry-manifest.txt` that feeds the
-   delta.
+   delta; lists **all** sorry-tainted declarations (theorems + definitions).
 
-`exclude-module` narrows only Sections 1–2 (the detailed view). Sections 3–4
-always cover every in-project module, so excluded code still appears in the
-summary and the manifest.
+Two scopes to keep straight:
+- **What is audited in detail** (Sections 1–2): by default all project modules;
+  `exclude-module` narrows this. These sections count **theorems/axioms** — your
+  claims.
+- **The full project** (Sections 3–4): always every module and **every
+  declaration kind**. So the manifest count is usually higher than Section 2's —
+  it includes unfinished *definitions*, not just tainted theorems.
 
 ## Setup
 

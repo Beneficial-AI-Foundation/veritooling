@@ -8,7 +8,7 @@ transitive axiom-closure analysis.
 - **`sorryAx`** in the transitive axiom closure (not just direct body usage)
 - **`Lean.trustCompiler`** usage
 - All non-builtin axioms (`propext`, `Classical.choice`, `Quot.sound` are filtered)
-- BFS provenance tracing: which direct-sorry declaration contaminates which in-focus theorem
+- BFS provenance tracing: which direct-sorry declaration contaminates which audited theorem/axiom
 
 ## Prerequisites
 
