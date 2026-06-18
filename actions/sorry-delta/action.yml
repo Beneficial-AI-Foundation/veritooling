@@ -73,10 +73,14 @@ runs:
         if [ "${{ inputs.fail-on-new }}" = "true" ]; then
           FAIL_FLAG="--fail-on-new"
         fi
+        ANNOTATE_FLAG=""
+        if [ "${{ inputs.annotate }}" = "true" ]; then
+          ANNOTATE_FLAG="--annotate"
+        fi
         python3 "${{ github.action_path }}/sorry-diff.py" \
           "${{ inputs.base-manifest }}" \
           "${{ inputs.head-manifest }}" \
           --output "${{ inputs.output-path }}" \
           --summary \
           --include-prefix "$INCLUDE_PREFIX" \
-          $FAIL_FLAG
+          $FAIL_FLAG $ANNOTATE_FLAG
