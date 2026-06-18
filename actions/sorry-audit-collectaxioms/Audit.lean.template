@@ -56,11 +56,14 @@ run_cmd liftTermElabM do
   logInfo m!"=== Project modules detected ==="
   for h : i in [:projectModuleNames.size] do
     logInfo m!"  {projectModuleNames[i]}"
-  logInfo m!"\n=== In-focus modules (detailed audit) ==="
+  if excludeNames.isEmpty then
+    logInfo m!"\n=== Modules audited in detail: all {focusModuleNames.size} project modules ==="
+  else
+    logInfo m!"\n=== Modules audited in detail: {focusModuleNames.size} of {projectModuleNames.size} project modules ==="
   for h : i in [:focusModuleNames.size] do
     logInfo m!"  {focusModuleNames[i]}"
   unless excludeNames.isEmpty do
-    logInfo m!"\n=== Excluded from detailed audit ==="
+    logInfo m!"\n=== Excluded from the detailed audit (still counted in the full-project summary and manifest) ==="
     for h : i in [:excludeNames.size] do
       logInfo m!"  {excludeNames[i]}"
 
@@ -105,7 +108,9 @@ run_cmd liftTermElabM do
     logInfo m!"\n╔══════════════════════════════════════════════════════╗"
     logInfo m!"║  SECTION 1: Axiom & sorry audit                      ║"
     logInfo m!"╚══════════════════════════════════════════════════════╝"
-    logInfo m!"Theorems+axioms in focus: {focusThms.size}"
+    logInfo m!"What each audited theorem/axiom trusts beyond Lean's 3 built-in axioms."
+    logInfo m!"(`sorry` and `Lean.trustCompiler` are the concerning ones.)\n"
+    logInfo m!"Theorems/axioms audited: {focusThms.size}"
 
     let mut focusSorry := false
     let mut focusTrust := false
@@ -123,11 +128,11 @@ run_cmd liftTermElabM do
       for h2 : j in [:nonBuiltin.size] do
         focusAllCustom := focusAllCustom.insert nonBuiltin[j]
 
-    if focusSorry then logInfo m!"⚠  `sorry` found in in-focus code!"
-    else logInfo m!"✓  No `sorry` in in-focus code."
-    if focusTrust then logInfo m!"⚠  `Lean.trustCompiler` found in in-focus code."
-    else logInfo m!"✓  No `Lean.trustCompiler` in in-focus code."
-    logInfo m!"\nDeclarations with non-builtin axioms: {focusResults.size} / {focusThms.size}"
+    if focusSorry then logInfo m!"⚠  `sorry` found in audited theorems/axioms!"
+    else logInfo m!"✓  No `sorry` in audited theorems/axioms."
+    if focusTrust then logInfo m!"⚠  `Lean.trustCompiler` found in audited theorems/axioms."
+    else logInfo m!"✓  No `Lean.trustCompiler` in audited theorems/axioms."
+    logInfo m!"\nTheorems/axioms relying on non-builtin axioms: {focusResults.size} / {focusThms.size}"
 
     for h : i in [:focusResults.size] do
       let (nm, axioms) := focusResults[i]
@@ -136,7 +141,7 @@ run_cmd liftTermElabM do
         msg := msg ++ m!"\n    └─ {axioms[j]}"
       logInfo msg
 
-    logInfo m!"\n--- Custom axioms used across in-focus code ---"
+    logInfo m!"\n--- Custom axioms used across audited theorems/axioms ---"
     for a in focusAllCustom.toArray do
       logInfo m!"  • {a}"
 
@@ -144,6 +149,8 @@ run_cmd liftTermElabM do
     logInfo m!"\n╔══════════════════════════════════════════════════════╗"
     logInfo m!"║  SECTION 2: Where does `sorry` come from?             ║"
     logInfo m!"╚══════════════════════════════════════════════════════╝"
+    logInfo m!"For each audited theorem/axiom whose proof depends on `sorry`, the chain"
+    logInfo m!"from the theorem down to the declaration that contains the `sorry`.\n"
 
     let mut directSorrySet : Std.HashSet Name := {}
     let mut directSorryList : Array Name := #[]
@@ -157,7 +164,7 @@ run_cmd liftTermElabM do
     for h : i in [:directSorryList.size] do
       logInfo m!"  [{modOf directSorryList[i]}] {directSorryList[i]}"
 
-    logInfo m!"\n--- How `sorry` reaches each in-focus theorem ---"
+    logInfo m!"\n--- How `sorry` reaches each audited theorem/axiom ---"
 
     let mut sorryFocusCount : Nat := 0
     for h : i in [:focusResults.size] do
@@ -210,7 +217,8 @@ run_cmd liftTermElabM do
       logInfo msg
       logInfo m!""
 
-    logInfo m!"Sorry-tainted in-focus declarations: {sorryFocusCount} / {focusThms.size}"
+    logInfo m!"Audited theorems/axioms whose proof depends on `sorry`: {sorryFocusCount} / {focusThms.size}"
+    logInfo m!"(Definitions that use `sorry` are not counted here; see the manifest below for all declarations.)"
 
   -- Section 3: Full project summary
   logInfo m!"\n╔══════════════════════════════════════════════════════╗"
@@ -266,4 +274,4 @@ run_cmd liftTermElabM do
   let header := "# sorry-manifest v1\n"
   let content := header ++ String.join (sorted.toList.map (· ++ "\n"))
   IO.FS.writeFile "__MANIFEST_PATH__" content
-  logInfo m!"__MANIFEST_PATH__ written ({sorted.size} sorry-tainted declarations)"
+  logInfo m!"__MANIFEST_PATH__ written ({sorted.size} sorry-tainted declarations, theorems + definitions, across the whole project)"
