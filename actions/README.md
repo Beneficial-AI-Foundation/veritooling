@@ -8,6 +8,7 @@ folder's README for how the pieces fit together.
 
 | Action | Phase | Purpose |
 |--------|-------|---------|
+| [`sorry-audit`](sorry-audit/) | Generation | One-step pipeline: restore baseline, audit, cache, specs delta, upload. Composes the actions below. |
 | [`sorry-audit-collectaxioms`](sorry-audit-collectaxioms/) | Generation | Transitive axiom-closure sorry detection via Lean metaprogramming. |
 | [`sorry-audit-probe`](sorry-audit-probe/) | Generation | Sorry detection via [probe-lean](https://github.com/Beneficial-AI-Foundation/probe-lean). |
 | [`specs-delta`](specs-delta/) | Generation | Detect specification-theorem changes. |

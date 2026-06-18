@@ -82,68 +82,14 @@ jobs:
           build-args: ${{ inputs.lean-build-args }}
           lake-package-directory: ${{ inputs.lake-package-directory }}
 
-      # --- Sorry audit ---
-
-      - name: Restore base sorry manifest
-        if: github.event_name == 'pull_request'
-        uses: actions/cache/restore@v4
+      # --- Sorry audit (restore baseline, audit, cache, specs delta, upload) ---
+      # All orchestration lives in the sorry-audit composite action so it is
+      # defined once and shared with consumers that compose it directly.
+      - name: Sorry audit
+        uses: Beneficial-AI-Foundation/veritooling/actions/sorry-audit@v1
         with:
-          key: sorry-manifest-${{ github.event.pull_request.base.ref }}-${{ github.event.pull_request.base.sha }}
-          restore-keys: |
-            sorry-manifest-main-
-          path: sorry-manifest.txt
-
-      - name: Prepare base manifest
-        if: github.event_name == 'pull_request'
-        run: |
-          [ -f sorry-manifest.txt ] && mv sorry-manifest.txt sorry-manifest-base.txt || true
-        shell: bash
-
-      - name: Sorry audit (collectaxioms)
-        if: inputs.sorry-backend == 'collectaxioms'
-        uses: Beneficial-AI-Foundation/veritooling/actions/sorry-audit-collectaxioms@v1
-        with:
+          backend: ${{ inputs.sorry-backend }}
           root-module: ${{ inputs.root-module }}
           exclude-module: ${{ inputs.exclude-module }}
-
-      - name: Sorry audit (probe-lean)
-        if: inputs.sorry-backend == 'probe'
-        uses: Beneficial-AI-Foundation/veritooling/actions/sorry-audit-probe@v1
-
-      - name: Save sorry manifest to cache
-        if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-        uses: actions/cache/save@v4
-        with:
-          key: sorry-manifest-${{ github.ref_name }}-${{ github.sha }}
-          path: sorry-manifest.txt
-
-      # --- Specs delta (git-diff mode, runs in build context) ---
-
-      - name: Specs delta (git-diff)
-        if: inputs.specs-delta-mode == 'git-diff' && github.event_name == 'pull_request'
-        uses: Beneficial-AI-Foundation/veritooling/actions/specs-delta@v1
-        with:
-          mode: git-diff
+          specs-delta-mode: ${{ inputs.specs-delta-mode }}
           specs-paths: ${{ inputs.specs-paths }}
-          base-ref: ${{ github.event.pull_request.base.sha }}
-
-      # --- Upload artifacts for the comment workflow ---
-
-      - name: Save PR number
-        if: github.event_name == 'pull_request'
-        run: echo "${{ github.event.pull_request.number }}" > pr-number.txt
-        shell: bash
-
-      - name: Upload verification artifacts
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: verification-audit
-          path: |
-            sorry-manifest.txt
-            sorry-manifest-base.txt
-            specs-delta.json
-            .specs-delta-section.md
-            pr-number.txt
-          if-no-files-found: ignore
-          retention-days: 1
