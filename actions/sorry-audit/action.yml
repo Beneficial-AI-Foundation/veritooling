@@ -55,8 +55,8 @@ inputs:
   include-prefix:
     description: >
       Module prefix(es) to scope the annotations to (comma/whitespace-
-      separated), e.g. hand-written code.  Empty (default) annotates every new
-      sorry.
+      separated), e.g. hand-written code.  Empty (default) derives the scope
+      from the lakefile's defaultTargets (lean_lib targets).
     required: false
     default: ""
   artifact-name:
@@ -102,6 +102,45 @@ runs:
       with:
         manifest-path: ${{ inputs.manifest-path }}
 
+    # Scope annotations to hand-written code.  When include-prefix is unset,
+    # derive it from the lakefile's defaultTargets (the lean_lib targets), so
+    # the default scope matches what the backend actually audits.
+    - name: Determine annotation scope
+      id: scope
+      if: github.event_name == 'pull_request' && inputs.annotate-new-sorries == 'true'
+      shell: bash
+      env:
+        INCLUDE_PREFIX: ${{ inputs.include-prefix }}
+      run: |
+        PREFIX="${INCLUDE_PREFIX}"
+        if [ -z "${PREFIX// }" ] && [ -f lakefile.toml ]; then
+          DT_NAMES=$(awk '
+            /^[[:space:]]*defaultTargets[[:space:]]*=/ { flag=1 }
+            flag                                       { print }
+            /\]/                                       { if (flag) flag=0 }
+          ' lakefile.toml | grep -oE '"[^"]+"' | tr -d '"')
+          LIB_NAMES=$(awk '
+            /^\[\[lean_lib\]\]/ { inlib=1; next }
+            /^\[\[/             { inlib=0 }
+            inlib && /^[[:space:]]*name[[:space:]]*=/ {
+              l=$0; sub(/^[^"]*"/,"",l); sub(/".*/,"",l); print l
+            }
+          ' lakefile.toml)
+          DETECTED=""
+          for t in $DT_NAMES; do
+            for lib in $LIB_NAMES; do
+              if [ "$t" = "$lib" ]; then
+                [ -n "$DETECTED" ] && DETECTED="${DETECTED},"
+                DETECTED="${DETECTED}${t}"
+                break
+              fi
+            done
+          done
+          PREFIX="$DETECTED"
+          [ -n "$PREFIX" ] && echo "Derived annotation scope from defaultTargets: $PREFIX"
+        fi
+        echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
+
     # Emit inline ::warning annotations for newly-introduced sorries.  Runs in
     # this (pull_request) job so the annotations attach to the PR head SHA and
     # render on the diff; sorry-manifest-base.txt is the restored baseline (no
@@ -112,7 +151,7 @@ runs:
       with:
         base-manifest: sorry-manifest-base.txt
         head-manifest: ${{ inputs.manifest-path }}
-        include-prefix: ${{ inputs.include-prefix }}
+        include-prefix: ${{ steps.scope.outputs.prefix }}
         annotate: "true"
 
     - name: Save sorry manifest to cache
