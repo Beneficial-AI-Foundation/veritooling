@@ -122,10 +122,14 @@ jobs:
 
 `lean-build-audit.yml` and `verification-comment.yml` each expose their inputs
 inline at the top of the file. The actions they call are documented per
-directory: [`sorry-audit-collectaxioms`](../../actions/sorry-audit-collectaxioms),
+directory: [`sorry-audit`](../../actions/sorry-audit),
+[`sorry-audit-collectaxioms`](../../actions/sorry-audit-collectaxioms),
 [`sorry-audit-probe`](../../actions/sorry-audit-probe),
 [`sorry-delta`](../../actions/sorry-delta), [`specs-delta`](../../actions/specs-delta),
 [`verification-delta-report`](../../actions/verification-delta-report).
 
-To compose the individual actions into a hand-written pipeline instead of using
-these workflows, read those action READMEs — the wiring mirrors the steps above.
+`lean-build-audit.yml` is just `checkout` + `lake build` + the
+[`sorry-audit`](../../actions/sorry-audit) action. If you need the audit to share
+a job with other steps (e.g. a doc-site build on the same `lake build`), drop
+that action into your own job instead of calling the whole workflow — the audit
+orchestration lives in one place either way.

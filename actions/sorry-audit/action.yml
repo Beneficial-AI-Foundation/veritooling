@@ -1,0 +1,121 @@
+name: "Sorry Audit (pipeline)"
+description: >
+  End-to-end sorry audit for an already-built Lean project: restore the base
+  branch's manifest, generate the head manifest (collectaxioms or probe
+  backend), cache it on the default branch, optionally compute the specs delta,
+  and upload the artifacts the verification-comment workflow consumes.
+
+  This bundles the orchestration around the per-backend audit actions into a
+  single step.  Requires a prior `lake build`.  Run it in a build job with no
+  write permissions; the artifacts it uploads are consumed by a separate
+  reporting job.
+author: "Beneficial AI Foundation"
+
+branding:
+  icon: "search"
+  color: "blue"
+
+inputs:
+  backend:
+    description: "Sorry audit backend: collectaxioms or probe"
+    required: false
+    default: "probe"
+  root-module:
+    description: >
+      Root module(s) for the collectaxioms backend, comma- or
+      whitespace-separated.  If empty, auto-detected from lakefile.toml
+      defaultTargets.  Ignored by the probe backend.
+    required: false
+    default: ""
+  exclude-module:
+    description: "Module(s) to omit from the detailed audit (collectaxioms only)"
+    required: false
+    default: ""
+  specs-delta-mode:
+    description: "Specs delta mode: off or git-diff"
+    required: false
+    default: "off"
+  specs-paths:
+    description: "Comma-separated specs directory paths (git-diff mode only)"
+    required: false
+    default: ""
+  manifest-path:
+    description: "Path of the generated head manifest"
+    required: false
+    default: "sorry-manifest.txt"
+  artifact-name:
+    description: "Name of the uploaded artifact bundle"
+    required: false
+    default: "verification-audit"
+
+outputs:
+  sorry-count:
+    description: "Total sorry-tainted declaration count"
+    value: ${{ steps.collectaxioms.outputs.sorry-count || steps.probe.outputs.sorry-count }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Restore base sorry manifest
+      if: github.event_name == 'pull_request'
+      uses: actions/cache/restore@v4
+      with:
+        key: sorry-manifest-${{ github.event.pull_request.base.ref }}-${{ github.event.pull_request.base.sha }}
+        restore-keys: |
+          sorry-manifest-${{ github.event.repository.default_branch }}-
+        path: ${{ inputs.manifest-path }}
+
+    - name: Prepare base manifest
+      if: github.event_name == 'pull_request'
+      shell: bash
+      run: '[ -f "${{ inputs.manifest-path }}" ] && mv "${{ inputs.manifest-path }}" sorry-manifest-base.txt || true'
+
+    - name: Sorry audit (collectaxioms)
+      id: collectaxioms
+      if: inputs.backend == 'collectaxioms'
+      uses: Beneficial-AI-Foundation/veritooling/actions/sorry-audit-collectaxioms@v1
+      with:
+        root-module: ${{ inputs.root-module }}
+        exclude-module: ${{ inputs.exclude-module }}
+        manifest-path: ${{ inputs.manifest-path }}
+
+    - name: Sorry audit (probe-lean)
+      id: probe
+      if: inputs.backend == 'probe'
+      uses: Beneficial-AI-Foundation/veritooling/actions/sorry-audit-probe@v1
+      with:
+        manifest-path: ${{ inputs.manifest-path }}
+
+    - name: Save sorry manifest to cache
+      if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      uses: actions/cache/save@v4
+      with:
+        key: sorry-manifest-${{ github.ref_name }}-${{ github.sha }}
+        path: ${{ inputs.manifest-path }}
+
+    - name: Specs delta (git-diff)
+      if: inputs.specs-delta-mode == 'git-diff' && github.event_name == 'pull_request'
+      uses: Beneficial-AI-Foundation/veritooling/actions/specs-delta@v1
+      with:
+        mode: git-diff
+        specs-paths: ${{ inputs.specs-paths }}
+        base-ref: ${{ github.event.pull_request.base.sha }}
+
+    - name: Save PR number
+      if: github.event_name == 'pull_request'
+      shell: bash
+      run: echo "${{ github.event.pull_request.number }}" > pr-number.txt
+
+    - name: Upload verification artifacts
+      if: github.event_name == 'pull_request'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          ${{ inputs.manifest-path }}
+          sorry-manifest-base.txt
+          specs-delta.json
+          .specs-delta-section.md
+          pr-number.txt
+        if-no-files-found: ignore
+        retention-days: 1
