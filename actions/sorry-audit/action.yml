@@ -43,6 +43,22 @@ inputs:
     description: "Path of the generated head manifest"
     required: false
     default: "sorry-manifest.txt"
+  annotate-new-sorries:
+    description: >
+      On pull requests, emit a GitHub ::warning annotation per newly-introduced
+      sorry.  This runs in the (pull_request-triggered) build job, so file/line
+      annotations render inline on the PR diff -- unlike the sticky comment,
+      which is posted from a workflow_run job and cannot annotate the diff.
+      Requires the probe backend (collectaxioms manifests carry no file:line).
+    required: false
+    default: "false"
+  include-prefix:
+    description: >
+      Module prefix(es) to scope the annotations to (comma/whitespace-
+      separated), e.g. hand-written code.  Empty (default) annotates every new
+      sorry.
+    required: false
+    default: ""
   artifact-name:
     description: "Name of the uploaded artifact bundle"
     required: false
@@ -85,6 +101,19 @@ runs:
       uses: Beneficial-AI-Foundation/veritooling/actions/sorry-audit-probe@v1
       with:
         manifest-path: ${{ inputs.manifest-path }}
+
+    # Emit inline ::warning annotations for newly-introduced sorries.  Runs in
+    # this (pull_request) job so the annotations attach to the PR head SHA and
+    # render on the diff; sorry-manifest-base.txt is the restored baseline (no
+    # baseline -> no new sorries -> no annotations).
+    - name: Annotate new sorries
+      if: github.event_name == 'pull_request' && inputs.annotate-new-sorries == 'true'
+      uses: Beneficial-AI-Foundation/veritooling/actions/sorry-delta@v1
+      with:
+        base-manifest: sorry-manifest-base.txt
+        head-manifest: ${{ inputs.manifest-path }}
+        include-prefix: ${{ inputs.include-prefix }}
+        annotate: "true"
 
     - name: Save sorry manifest to cache
       if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
