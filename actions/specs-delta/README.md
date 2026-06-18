@@ -10,7 +10,7 @@ Detects file-level changes in specs directories using `git diff --name-status`.
 No external tools required.
 
 ```yaml
-- uses: Beneficial-AI-Foundation/veritooling/specs-delta@v1
+- uses: Beneficial-AI-Foundation/veritooling/actions/specs-delta@v1
   with:
     mode: git-diff
     specs-paths: MyProject/Specs
@@ -23,7 +23,7 @@ Diffs probe-lean JSON outputs to detect declaration-level spec changes,
 including verification status transitions (newly verified, newly broken).
 
 ```yaml
-- uses: Beneficial-AI-Foundation/veritooling/specs-delta@v1
+- uses: Beneficial-AI-Foundation/veritooling/actions/specs-delta@v1
   with:
     mode: probe
     probe-base-json: probe-base.json

@@ -22,7 +22,7 @@ transitive axiom-closure analysis.
   with:
     build: true
 
-- uses: Beneficial-AI-Foundation/veritooling/sorry-audit-collectaxioms@v1
+- uses: Beneficial-AI-Foundation/veritooling/actions/sorry-audit-collectaxioms@v1
   # root-module is auto-detected from lakefile.toml `defaultTargets`;
   # set it explicitly to override.
 ```
@@ -33,7 +33,7 @@ library, list every root and exclude the generated one from the detailed view
 (it is still scanned and still appears in the manifest):
 
 ```yaml
-- uses: Beneficial-AI-Foundation/veritooling/sorry-audit-collectaxioms@v1
+- uses: Beneficial-AI-Foundation/veritooling/actions/sorry-audit-collectaxioms@v1
   with:
     root-module: MyProject,Extracted
     exclude-module: Extracted        # keep generated code out of the detailed audit

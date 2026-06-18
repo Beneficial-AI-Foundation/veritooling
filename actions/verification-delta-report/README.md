@@ -6,7 +6,7 @@ Combine sorry-delta and specs-delta markdown sections into a single
 ## Usage
 
 ```yaml
-- uses: Beneficial-AI-Foundation/veritooling/verification-delta-report@v1
+- uses: Beneficial-AI-Foundation/veritooling/actions/verification-delta-report@v1
   with:
     sorry-delta-path: .sorry-delta-section.md
     specs-delta-path: .specs-delta-section.md  # optional
