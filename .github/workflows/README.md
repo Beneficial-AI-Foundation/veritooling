@@ -122,10 +122,10 @@ jobs:
 
 `lean-build-audit.yml` and `verification-comment.yml` each expose their inputs
 inline at the top of the file. The actions they call are documented per
-directory: [`sorry-audit-collectaxioms`](../../sorry-audit-collectaxioms),
-[`sorry-audit-probe`](../../sorry-audit-probe),
-[`sorry-delta`](../../sorry-delta), [`specs-delta`](../../specs-delta),
-[`verification-delta-report`](../../verification-delta-report).
+directory: [`sorry-audit-collectaxioms`](../../actions/sorry-audit-collectaxioms),
+[`sorry-audit-probe`](../../actions/sorry-audit-probe),
+[`sorry-delta`](../../actions/sorry-delta), [`specs-delta`](../../actions/specs-delta),
+[`verification-delta-report`](../../actions/verification-delta-report).
 
 To compose the individual actions into a hand-written pipeline instead of using
 these workflows, read those action READMEs — the wiring mirrors the steps above.

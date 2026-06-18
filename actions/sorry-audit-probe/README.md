@@ -24,7 +24,7 @@ dependencies). Transitive propagation is planned as
   with:
     build: true
 
-- uses: Beneficial-AI-Foundation/veritooling/sorry-audit-probe@v1
+- uses: Beneficial-AI-Foundation/veritooling/actions/sorry-audit-probe@v1
 ```
 
 ## Inputs

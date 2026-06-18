@@ -51,7 +51,7 @@ jobs:
           [ -f sorry-manifest.txt ] && mv sorry-manifest.txt sorry-manifest-base.txt || true
 
       - name: Sorry audit
-        uses: Beneficial-AI-Foundation/veritooling/sorry-audit-probe@v1
+        uses: Beneficial-AI-Foundation/veritooling/actions/sorry-audit-probe@v1
 
       - name: Save sorry manifest to cache
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

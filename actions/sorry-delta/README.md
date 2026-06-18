@@ -6,7 +6,7 @@ producing a markdown section for a PR comment.
 ## Usage
 
 ```yaml
-- uses: Beneficial-AI-Foundation/veritooling/sorry-delta@v1
+- uses: Beneficial-AI-Foundation/veritooling/actions/sorry-delta@v1
   with:
     base-manifest: sorry-manifests/sorry-manifest-base.txt
     head-manifest: sorry-manifests/sorry-manifest.txt
@@ -20,7 +20,7 @@ hand-written module prefix(es): the delta and the `should-comment` signal then
 cover only those modules.
 
 ```yaml
-- uses: Beneficial-AI-Foundation/veritooling/sorry-delta@v1
+- uses: Beneficial-AI-Foundation/veritooling/actions/sorry-delta@v1
   id: sorry
   with:
     base-manifest: sorry-manifests/sorry-manifest-base.txt

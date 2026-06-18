@@ -79,7 +79,7 @@ jobs:
 
       - name: Compute sorry delta
         id: sorry
-        uses: Beneficial-AI-Foundation/veritooling/sorry-delta@v1
+        uses: Beneficial-AI-Foundation/veritooling/actions/sorry-delta@v1
         with:
           base-manifest: artifacts/sorry-manifest-base.txt
           head-manifest: artifacts/sorry-manifest.txt
@@ -88,7 +88,7 @@ jobs:
 
       - name: Combine verification delta report
         if: steps.sorry.outputs.should-comment == 'true'
-        uses: Beneficial-AI-Foundation/veritooling/verification-delta-report@v1
+        uses: Beneficial-AI-Foundation/veritooling/actions/verification-delta-report@v1
         with:
           sorry-delta-path: .sorry-delta-section.md
           specs-delta-path: artifacts/.specs-delta-section.md

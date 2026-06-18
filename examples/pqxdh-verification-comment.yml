@@ -26,8 +26,8 @@ jobs:
         with:
           repository: Beneficial-AI-Foundation/veritooling
           sparse-checkout: |
-            sorry-delta/
-            verification-delta-report/
+            actions/sorry-delta/
+            actions/verification-delta-report/
 
       - name: Download verification artifacts
         uses: actions/download-artifact@v4
@@ -48,13 +48,13 @@ jobs:
           echo "number=$PR_NUM" >> "$GITHUB_OUTPUT"
 
       - name: Compute sorry delta
-        uses: ./sorry-delta
+        uses: ./actions/sorry-delta
         with:
           base-manifest: artifacts/sorry-manifest-base.txt
           head-manifest: artifacts/sorry-manifest.txt
 
       - name: Combine verification delta report
-        uses: ./verification-delta-report
+        uses: ./actions/verification-delta-report
         with:
           sorry-delta-path: .sorry-delta-section.md
 

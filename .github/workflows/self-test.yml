@@ -37,7 +37,7 @@ jobs:
         shell: bash
 
       - name: Run sorry-delta
-        uses: ./sorry-delta
+        uses: ./actions/sorry-delta
         id: delta
         with:
           base-manifest: base-manifest.txt
@@ -74,7 +74,7 @@ jobs:
         shell: bash
 
       - name: Run sorry-delta (no baseline)
-        uses: ./sorry-delta
+        uses: ./actions/sorry-delta
         id: delta
         with:
           base-manifest: nonexistent-base.txt
@@ -105,7 +105,7 @@ jobs:
         shell: bash
 
       - name: Run verification-delta-report
-        uses: ./verification-delta-report
+        uses: ./actions/verification-delta-report
         with:
           sorry-delta-path: .sorry-delta-section.md
           specs-delta-path: .specs-delta-section.md
@@ -136,7 +136,7 @@ jobs:
         shell: bash
 
       - name: Run specs-delta (git-diff)
-        uses: ./specs-delta
+        uses: ./actions/specs-delta
         id: delta
         with:
           mode: git-diff
