@@ -5,6 +5,12 @@ report suitable for a PR comment or GitHub Actions Job Summary.
 Usage:
     python3 sorry-diff.py <base-manifest> <head-manifest> [--output PATH]
                           [--fail-on-new] [--summary] [--include-prefix PREFIXES]
+                          [--annotate]
+
+With --annotate, a GitHub `::warning file=...,line=...::` annotation is emitted
+for each newly-introduced sorry (using the manifest's optional file:line
+column).  Emit it from a pull_request-triggered job so the annotations render
+inline on the PR diff.
 
 When --include-prefix is given (comma- or whitespace-separated module
 prefixes), the delta — counts, table, the `should-comment` signal, and
@@ -73,6 +79,51 @@ def parse_line(line: str) -> tuple[str, str, str]:
         parts[1] if len(parts) > 1 else "",
         parts[2] if len(parts) > 2 else "",
     )
+
+
+def parse_location(line: str) -> str | None:
+    """Return the optional `<file>:<line>` 4th manifest column, or None.
+
+    Produced by the probe backend (collectaxioms manifests have no location).
+    """
+    parts = line.split()
+    return parts[3] if len(parts) > 3 else None
+
+
+# GitHub renders at most this many warning annotations per run in the UI.
+MAX_ANNOTATIONS = 10
+
+
+def emit_annotations(new_lines: list[str]) -> None:
+    """Emit a GitHub `::warning` workflow command per newly-introduced sorry.
+
+    Annotations attach to the workflow RUN that prints them, so this is only
+    useful from a `pull_request`-triggered job (the build job): there the run
+    is tied to the PR head SHA and a warning whose file/line is in the diff
+    renders inline on the "Files changed" tab.  From a `workflow_run` job the
+    annotations would only appear on that run's own checks page, not on the PR.
+
+    Lines carrying a `<file>:<line>` 4th column get a location-anchored
+    annotation; the rest get a location-less warning (Checks tab only).
+    """
+    shown = new_lines[:MAX_ANNOTATIONS]
+    for entry in shown:
+        module, decl, _kind = parse_line(entry)
+        location = parse_location(entry)
+        msg = f"new sorry-tainted declaration: {module}.{decl}"
+        if location and ":" in location:
+            file, _, line = location.rpartition(":")
+            print(f"::warning file={file},line={line},title=New sorry::{msg}")
+        else:
+            print(f"::warning title=New sorry::{msg} (no source location)")
+    extra = len(new_lines) - len(shown)
+    if extra > 0:
+        # GitHub caps inline annotations; say so rather than silently dropping.
+        print(
+            f"::warning title=New sorries::{extra} more new sorry-tainted "
+            f"declaration(s) not annotated (GitHub shows at most "
+            f"{MAX_ANNOTATIONS}); see the sorry delta for the full list."
+        )
 
 
 def parse_prefixes(raw: str) -> list[str]:
@@ -170,6 +221,12 @@ def main() -> None:
         help="Comma/whitespace-separated module prefixes to report on "
              "(e.g. hand-written code); others are ignored",
     )
+    parser.add_argument(
+        "--annotate", action="store_true",
+        help="Emit a GitHub ::warning annotation per new sorry. Only meaningful "
+             "in a pull_request-triggered job, where file/line annotations "
+             "render inline on the PR diff.",
+    )
     args = parser.parse_args()
 
     if not args.head_manifest.exists():
@@ -192,6 +249,9 @@ def main() -> None:
     else:
         new_lines = []
         removed_lines = []
+
+    if args.annotate:
+        emit_annotations(new_lines)
 
     body = build_markdown(has_baseline, new_lines, removed_lines, total)
 

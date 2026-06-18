@@ -32,6 +32,13 @@ inputs:
     description: "Path for the output markdown section"
     required: false
     default: ".sorry-delta-section.md"
+  annotate:
+    description: >
+      Emit a GitHub ::warning annotation per new sorry (using the manifest's
+      file:line column).  Only meaningful from a pull_request-triggered job,
+      where file/line annotations render inline on the PR diff.
+    required: false
+    default: "false"
 
 outputs:
   new-count:
