@@ -21,6 +21,12 @@ exclusions.
 
 Reference: https://lean-lang.org/doc/reference/latest/ValidatingProofs/
 -/
+-- The metaprogramming API (collectAxioms, Elab.Command, Name) is always
+-- needed.  Import it explicitly rather than relying on the project root to
+-- pull it in transitively — bare projects (no mathlib) otherwise fail to
+-- elaborate this script.  `Lean.*` declarations are not under the configured
+-- roots, so importing it never widens the audited set.
+import Lean
 __ROOT_IMPORTS__
 
 open Lean Elab Command
