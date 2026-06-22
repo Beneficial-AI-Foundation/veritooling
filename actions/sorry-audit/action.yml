@@ -52,6 +52,16 @@ inputs:
       Requires the probe backend (collectaxioms manifests carry no file:line).
     required: false
     default: "false"
+  extract-args:
+    description: >
+      Extra arguments forwarded to `probe-lean extract` (probe backend only),
+      e.g. `--library Lib1,Lib2` to build AND restrict the audit to specific
+      libraries by module-name prefix.  Use this when the project builds extra
+      libraries (e.g. a docs/blueprint library) whose dependencies aren't built
+      during the audit, so the auto-detected "analyze everything" default would
+      try to import unbuilt modules.  Empty (default) audits every built module.
+    required: false
+    default: ""
   include-prefix:
     description: >
       Module prefix(es) to scope the annotations to (comma/whitespace-
@@ -101,6 +111,7 @@ runs:
       uses: Beneficial-AI-Foundation/veritooling/actions/sorry-audit-probe@v1
       with:
         manifest-path: ${{ inputs.manifest-path }}
+        extract-args: ${{ inputs.extract-args }}
 
     # Scope annotations to hand-written code.  When include-prefix is unset,
     # derive it from the lakefile's defaultTargets (the lean_lib targets), so
