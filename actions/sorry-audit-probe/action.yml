@@ -22,6 +22,14 @@ inputs:
     description: "Git ref for probe-lean source"
     required: false
     default: "main"
+  extract-args:
+    description: >
+      Extra arguments forwarded to `probe-lean extract`, e.g.
+      `--library Lib1,Lib2` to build AND restrict the analysis to specific
+      libraries (by module-name prefix), or `--module Foo.Bar`.  Empty
+      (default) analyzes every built module in `.lake/build/lib/lean`.
+    required: false
+    default: ""
 
 outputs:
   manifest-path:
@@ -42,6 +50,7 @@ runs:
       with:
         project-path: ${{ inputs.project-path }}
         probe-lean-ref: ${{ inputs.probe-lean-ref }}
+        extract-args: ${{ inputs.extract-args }}
 
     - name: Find probe-lean results
       id: find-results
