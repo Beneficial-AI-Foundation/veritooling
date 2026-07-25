@@ -323,6 +323,46 @@ def verus_setup(project_dir, args, state):
     return None
 
 
+def detect_lean_toolchain(project_dir: Path) -> str | None:
+    """Read the pinned Lean toolchain (``lean-toolchain`` file), if present."""
+    f = project_dir / "lean-toolchain"
+    if f.is_file():
+        return f.read_text(encoding="utf-8", errors="ignore").strip()
+    return None
+
+
+def lean_prepare(project_dir: Path):
+    """Clean the Lean build when the toolchain changed since the last build in
+    this work-clone. Cross-commit ``.lake`` cache reuse speeds up same-toolchain
+    samples, but ``.olean`` compiled by one Lean version fail to import under
+    another ("stale .olean" error), so we must ``lake clean`` on a toolchain
+    change (the Lean analog of per-release Verus setup).
+
+    Uses an on-disk sentinel under ``.lake`` so the decision survives across
+    resume/retry runs (in-memory state would be empty on a fresh process while
+    the build cache on disk is from a different toolchain).
+    """
+    tc = detect_lean_toolchain(project_dir)
+    if not tc:
+        return
+    lake_dir = project_dir / ".lake"
+    sentinel = lake_dir / ".vph-lean-toolchain"
+    prev = sentinel.read_text(encoding="utf-8").strip() if sentinel.is_file() else None
+    if prev == tc:
+        return
+    build_exists = (lake_dir / "build").exists()
+    if prev is not None or build_exists:
+        # Toolchain changed, or a pre-existing cache of unknown toolchain: clean
+        # the project build and refresh dependency oleans for the new toolchain.
+        print(f"  [lean] toolchain -> {tc} (changed/unknown cache) -> lake clean")
+        run(["lake", "clean"], cwd=project_dir, timeout=600)
+        # mathlib and similar ship a `cache get` exe that fetches prebuilt
+        # oleans matching the pinned rev + toolchain; harmless no-op elsewhere.
+        run(["lake", "exe", "cache", "get"], cwd=project_dir, timeout=1800)
+    lake_dir.mkdir(parents=True, exist_ok=True)
+    sentinel.write_text(tc, encoding="utf-8")
+
+
 def run_extract_cmd(pipeline, project_dir, args):
     """Run the extract command. Returns (code, output); code is None on timeout.
 
@@ -371,9 +411,25 @@ def load_recorded(jsonl: Path):
 
 
 def append_record(jsonl: Path, csv_path: Path, record: dict):
+    """Upsert a record by commit (last write wins), so a `--retry-failed` re-run
+    supersedes the prior row for that commit rather than duplicating it."""
     jsonl.parent.mkdir(parents=True, exist_ok=True)
-    with open(jsonl, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record) + "\n")
+    kept = []
+    if jsonl.is_file():
+        for line in jsonl.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if r.get("commit") != record.get("commit"):
+                kept.append(r)
+    kept.append(record)
+    with open(jsonl, "w", encoding="utf-8") as f:
+        for r in kept:
+            f.write(json.dumps(r) + "\n")
     regenerate_csv(jsonl, csv_path)
 
 
@@ -517,6 +573,8 @@ def main(argv=None):
                 append_record(jsonl, csv_path, record)
                 print(f"     {record['status']}: {record['reason']}")
                 continue
+        elif pipeline == "aeneas":
+            lean_prepare(project_dir)
 
         # Freshness anchor: only JSON written by THIS extract counts (excludes
         # any committed .verilib JSON that `git checkout` just restored).

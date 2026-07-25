@@ -38,6 +38,8 @@ build caches is a poor fit for CI.
 1. **Clone once** into a persistent `--work-clone` (never touches your checkout; a local path is cloned so build caches accumulate there).
 2. **List commits** in `--since`/`--until` and **bucket** them by period, keeping the latest commit per period. Weeks with no commit are gaps (not interpolated); HEAD is always included.
 3. **Oldest → newest**, for each sample: `git checkout -f <sha>` (never `git clean -x`, so `target/` / `.lake/` caches survive and each build is incremental), run `extract`, then read the **freshly written** unified JSON and validate its `source.commit` matches the sample before recording.
+   - **Verus**: the matching Verus release is installed per commit via `probe-verus setup --from-project` (deduped — only re-installs when the pinned release changes).
+   - **Lean/Aeneas**: when the `lean-toolchain` changes between samples, the tool runs `lake clean` + `lake exe cache get` first, because `.olean` from another Lean version fail to import ("stale .olean"). This is tracked by an on-disk sentinel so it also fires correctly on `--retry-failed`.
 4. **Append** one record per sample to JSONL and regenerate the CSV. Failures (build/verify/timeout/mismatch) are recorded with a status + reason, not dropped.
 
 ```mermaid
@@ -102,8 +104,12 @@ python3 progress_history.py /path/to/SparsePostQuantumRatchet-verify \
   --sample-timeout 3600 --resume
 ```
 
-Charon hangs on some SPQR modules; `--sample-timeout` bounds each sample and the
-tool kills the whole process group, recording a `timeout` status.
+`--sample-timeout` bounds each sample and the tool kills the whole process
+group, recording a `timeout` status. SPQR only commits a `translation.json`
+from mid-2026 (PR #197), so earlier samples regenerate it via Charon (heavier);
+recent samples with a committed `translation.json` skip the Charon pre-flight.
+The `lean-toolchain` changes across this window, so the tool cleans the Lean
+build on each change (see step 3).
 
 ### Deferred: curve25519-dalek-lean-verify ("dalek-lean")
 
