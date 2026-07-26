@@ -38,31 +38,34 @@ def test_envelope_commit_and_tool():
     assert ph.envelope_commit({"inputs": [{"source": {"commit": "y"}}]}) == "y"
     assert ph.envelope_commit({}) is None
     assert ph.envelope_tool({"tool": {"name": "probe-aeneas", "version": "0.16.0"}}) == (
-        "probe-aeneas", "0.16.0")
+        "probe-aeneas",
+        "0.16.0",
+    )
     assert ph.envelope_tool({}) == ("", "")
 
 
 def test_aeneas_crate_dir(tmp_path):
     (tmp_path / "aeneas-config.yml").write_text(
-        'aeneas:\n  commit: "abc"\ncrate:\n  dir: "curve25519-dalek"\n  name: "cd"\n')
+        'aeneas:\n  commit: "abc"\ncrate:\n  dir: "curve25519-dalek"\n  name: "cd"\n'
+    )
     assert ph._aeneas_crate_dir(tmp_path) == "curve25519-dalek"
     assert ph._aeneas_crate_dir(tmp_path / "nope") == "."  # no config -> repo root
 
 
 def test_anchor_friday_lands_on_or_after():
     friday = ph.WEEKDAYS.index("friday")
-    wed = datetime(2026, 1, 7, 12, tzinfo=timezone.utc)   # Wednesday
+    wed = datetime(2026, 1, 7, 12, tzinfo=timezone.utc)  # Wednesday
     a = ph.anchor_friday(wed, friday)
     assert a.weekday() == 4 and a.date().isoformat() == "2026-01-09"
-    fri = datetime(2026, 1, 9, 1, tzinfo=timezone.utc)    # already Friday
+    fri = datetime(2026, 1, 9, 1, tzinfo=timezone.utc)  # already Friday
     assert ph.anchor_friday(fri, friday).date().isoformat() == "2026-01-09"
 
 
 def test_bucket_samples_one_per_period_plus_head():
     friday = ph.WEEKDAYS.index("friday")
     commits = [
-        ("a", datetime(2026, 1, 5, tzinfo=timezone.utc)),   # week 1
-        ("b", datetime(2026, 1, 8, tzinfo=timezone.utc)),   # week 1 (later -> wins)
+        ("a", datetime(2026, 1, 5, tzinfo=timezone.utc)),  # week 1
+        ("b", datetime(2026, 1, 8, tzinfo=timezone.utc)),  # week 1 (later -> wins)
         ("c", datetime(2026, 1, 15, tzinfo=timezone.utc)),  # week 2
     ]
     weekly = ph.bucket_samples(commits, friday, 1)
@@ -74,8 +77,11 @@ def test_append_record_upserts_by_commit(tmp_path):
     jsonl, csv_path = tmp_path / "progress.jsonl", tmp_path / "progress.csv"
     base = {"commit_date": "2026-01-01", "sample_date": "2026-01-02"}
     ph.append_record(jsonl, csv_path, {"commit": "aaa", "status": "extract_failed", **base})
-    ph.append_record(jsonl, csv_path, {"commit": "bbb", "status": "ok",
-                                       "commit_date": "2026-02-01", "sample_date": "2026-02-02"})
+    ph.append_record(
+        jsonl,
+        csv_path,
+        {"commit": "bbb", "status": "ok", "commit_date": "2026-02-01", "sample_date": "2026-02-02"},
+    )
     ph.append_record(jsonl, csv_path, {"commit": "aaa", "status": "ok", **base})  # revise aaa
 
     recs = ph._read_jsonl(jsonl)

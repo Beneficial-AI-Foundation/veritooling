@@ -15,43 +15,52 @@ def _exec(status, disabled=False, translated=False):
 
 
 def _artifact(status, kind="proof"):
-    return {"code-path": "X.lean", "language": "lean", "kind": kind,
-            "verification-status": status}
+    return {"code-path": "X.lean", "language": "lean", "kind": kind, "verification-status": status}
 
 
 def _envelope(atoms):
-    return {"schema": "probe-aeneas/extract",
-            "data": {str(i): a for i, a in enumerate(atoms)}}
+    return {"schema": "probe-aeneas/extract", "data": {str(i): a for i, a in enumerate(atoms)}}
 
 
 def test_bar_and_dot_counts():
-    env = _envelope([
-        _exec("verified", translated=True),
-        _exec("transitively-verified", translated=True),
-        _exec("unverified"),          # yellow == in-progress
-        _exec(None),                  # white == unspecified
-        _exec("trusted"),             # purple
-        _exec("verified", disabled=True),  # grey (out of scope)
-        _artifact("verified"),        # dot_green
-        _artifact("unverified"),      # dot_yellow
-        {"code-path": "", "language": "rust", "kind": "exec",
-         "verification-status": "verified"},   # excluded: external stub
-        {"code-path": "src/y.rs", "language": "rust", "kind": "exec",
-         "verification-status": "verified", "is-hidden": True},  # excluded
-    ])
+    env = _envelope(
+        [
+            _exec("verified", translated=True),
+            _exec("transitively-verified", translated=True),
+            _exec("unverified"),  # yellow == in-progress
+            _exec(None),  # white == unspecified
+            _exec("trusted"),  # purple
+            _exec("verified", disabled=True),  # grey (out of scope)
+            _artifact("verified"),  # dot_green
+            _artifact("unverified"),  # dot_yellow
+            {
+                "code-path": "",
+                "language": "rust",
+                "kind": "exec",
+                "verification-status": "verified",
+            },  # excluded: external stub
+            {
+                "code-path": "src/y.rs",
+                "language": "rust",
+                "kind": "exec",
+                "verification-status": "verified",
+                "is-hidden": True,
+            },  # excluded
+        ]
+    )
     m = colors.count_colors(env)
 
     assert m["pipeline"] == "aeneas"
     assert m["exec_total"] == 6  # excluded atoms are dropped before colouring
     assert (m["grey"], m["white"], m["yellow"], m["purple"]) == (1, 1, 1, 1)
     assert m["light_green"] == 1 and m["dark_green"] == 1
-    assert m["tracked"] == 5           # exec_total - grey
-    assert m["verified"] == 2          # light + dark green
+    assert m["tracked"] == 5  # exec_total - grey
+    assert m["verified"] == 2  # light + dark green
     assert m["verified_trusted"] == 3  # + purple
     assert m["translated"] == 2
     assert (m["dot_green"], m["dot_yellow"], m["dot_red"]) == (1, 1, 0)
     assert m["art_total"] == 2
-    assert m["warnings"] == []         # bar/dot covers reconcile
+    assert m["warnings"] == []  # bar/dot covers reconcile
 
 
 def test_translated_below_verified_warns():

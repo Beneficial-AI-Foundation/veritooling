@@ -1,0 +1,11 @@
+# Config for the standalone Python tools under tools/ (runtime is stdlib-only;
+# ruff and pytest are dev/CI-only). This repo is otherwise GitHub Actions + Lean.
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tools/verification-progress-history/tests"]

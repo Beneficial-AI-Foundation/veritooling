@@ -7,9 +7,17 @@ import plot_progress as pp
 
 
 def _ok(date, **over):
-    rec = {"status": "ok", "sample_date": date, "repo": "demo",
-           "tracked": 100, "verified": 40, "verified_trusted": 45,
-           "translated": 0, "yellow": 30, "white": 25}
+    rec = {
+        "status": "ok",
+        "sample_date": date,
+        "repo": "demo",
+        "tracked": 100,
+        "verified": 40,
+        "verified_trusted": 45,
+        "translated": 0,
+        "yellow": 30,
+        "white": 25,
+    }
     rec.update(over)
     return rec
 
@@ -17,8 +25,16 @@ def _ok(date, **over):
 def test_load_records_coerces_ints_and_blanks(tmp_path):
     p = tmp_path / "progress.jsonl"
     p.write_text(
-        json.dumps({"status": "ok", "sample_date": "2026-01-02",
-                    "tracked": "100", "yellow": "30", "white": ""}) + "\n"
+        json.dumps(
+            {
+                "status": "ok",
+                "sample_date": "2026-01-02",
+                "tracked": "100",
+                "yellow": "30",
+                "white": "",
+            }
+        )
+        + "\n"
     )
     (rec,) = pp.load_records(p)
     assert rec["tracked"] == 100 and rec["yellow"] == 30
@@ -60,6 +76,7 @@ def test_main_default_output_name(tmp_path):
 def test_main_png_when_converter_available(tmp_path):
     if not any(shutil.which(c) for c in ("rsvg-convert", "inkscape", "convert")):
         import pytest
+
         pytest.skip("no SVG->PNG converter on PATH")
     p = tmp_path / "progress.jsonl"
     p.write_text(json.dumps(_ok("2026-01-02")) + "\n")

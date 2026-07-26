@@ -20,6 +20,7 @@ skipped, matching how the frontier chart is defined.
 Usage:
     plot_progress.py <progress.jsonl|.csv> [-o out.svg] [--title TITLE]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -31,12 +32,12 @@ from pathlib import Path
 # Scheme colours (hex from the engineering-docs palette; see "Atom statuses and
 # colours"). Kept literal so the SVG is dependency-free and self-describing.
 COL = {
-    "tracked": "#888899",       # neutral ceiling
+    "tracked": "#888899",  # neutral ceiling
     "verified_trusted": "#7B64B8",  # purple — completion frontier
-    "verified": "#1F8A65",      # green — proved frontier
-    "translated": "#2E79B5",    # blue — Aeneas intermediate
-    "in_progress": "#E8833A",   # amber — in-progress (yellow: sorry / assume)
-    "unspecified": "#B08D57",   # tan — tracked but no spec written yet (white)
+    "verified": "#1F8A65",  # green — proved frontier
+    "translated": "#2E79B5",  # blue — Aeneas intermediate
+    "in_progress": "#E8833A",  # amber — in-progress (yellow: sorry / assume)
+    "unspecified": "#B08D57",  # tan — tracked but no spec written yet (white)
     "axis": "#999999",
     "grid": "#E4E4E422",
     "text": "#333333",
@@ -56,7 +57,7 @@ def load_records(path: Path) -> list[dict]:
         with path.open(newline="") as f:
             rows = list(csvmod.DictReader(f))
     else:
-        rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+        rows = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
     for r in rows:
         for k in INT_FIELDS:
             v = r.get(k, "")
@@ -65,7 +66,7 @@ def load_records(path: Path) -> list[dict]:
 
 
 def esc(s: str) -> str:
-    return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def nice_ceiling(v: int) -> int:
@@ -75,8 +76,10 @@ def nice_ceiling(v: int) -> int:
     for step in (10, 20, 25, 50, 100, 200, 250, 500, 1000):
         if v <= step * 5:
             import math
+
             return int(math.ceil(v / step) * step)
     import math
+
     return int(math.ceil(v / 1000) * 1000)
 
 
@@ -112,69 +115,95 @@ class Plot:
 
     def axes(self):
         p = self.parts
-        p.append(f'<text x="{self.ml}" y="28" font-size="17" font-weight="600" '
-                 f'fill="{COL["text"]}">{esc(self.title)}</text>')
+        p.append(
+            f'<text x="{self.ml}" y="28" font-size="17" font-weight="600" '
+            f'fill="{COL["text"]}">{esc(self.title)}</text>'
+        )
         if self.subtitle:
-            p.append(f'<text x="{self.ml}" y="47" font-size="11" '
-                     f'fill="{COL["text_muted"]}">{esc(self.subtitle)}</text>')
+            p.append(
+                f'<text x="{self.ml}" y="47" font-size="11" '
+                f'fill="{COL["text_muted"]}">{esc(self.subtitle)}</text>'
+            )
         # y gridlines + ticks (5 divisions)
         for k in range(6):
             val = self.y_max * k / 5
             yy = self.y(val)
-            p.append(f'<line x1="{self.ml}" y1="{yy:.1f}" x2="{self.ml + self.plot_w}" '
-                     f'y2="{yy:.1f}" stroke="{COL["grid"]}" />')
-            p.append(f'<text x="{self.ml - 8}" y="{yy + 4:.1f}" font-size="10" '
-                     f'text-anchor="end" fill="{COL["text_muted"]}">{int(round(val))}</text>')
+            p.append(
+                f'<line x1="{self.ml}" y1="{yy:.1f}" x2="{self.ml + self.plot_w}" '
+                f'y2="{yy:.1f}" stroke="{COL["grid"]}" />'
+            )
+            p.append(
+                f'<text x="{self.ml - 8}" y="{yy + 4:.1f}" font-size="10" '
+                f'text-anchor="end" fill="{COL["text_muted"]}">{int(round(val))}</text>'
+            )
         # axes
-        p.append(f'<line x1="{self.ml}" y1="{self.mt}" x2="{self.ml}" '
-                 f'y2="{self.mt + self.plot_h}" stroke="{COL["axis"]}" />')
-        p.append(f'<line x1="{self.ml}" y1="{self.mt + self.plot_h}" '
-                 f'x2="{self.ml + self.plot_w}" y2="{self.mt + self.plot_h}" '
-                 f'stroke="{COL["axis"]}" />')
+        p.append(
+            f'<line x1="{self.ml}" y1="{self.mt}" x2="{self.ml}" '
+            f'y2="{self.mt + self.plot_h}" stroke="{COL["axis"]}" />'
+        )
+        p.append(
+            f'<line x1="{self.ml}" y1="{self.mt + self.plot_h}" '
+            f'x2="{self.ml + self.plot_w}" y2="{self.mt + self.plot_h}" '
+            f'stroke="{COL["axis"]}" />'
+        )
         # y-axis label
         yc = self.mt + self.plot_h / 2
-        p.append(f'<text x="16" y="{yc:.1f}" font-size="11" fill="{COL["text_muted"]}" '
-                 f'text-anchor="middle" transform="rotate(-90 16 {yc:.1f})">{esc(self.y_label)}</text>')
+        p.append(
+            f'<text x="16" y="{yc:.1f}" font-size="11" fill="{COL["text_muted"]}" '
+            f'text-anchor="middle" transform="rotate(-90 16 {yc:.1f})">{esc(self.y_label)}</text>'
+        )
         # x labels (rotated)
         for i, c in enumerate(self.cats):
             xx = self.x(i)
             yy = self.mt + self.plot_h + 12
-            p.append(f'<text x="{xx:.1f}" y="{yy:.1f}" font-size="10" '
-                     f'fill="{COL["text_muted"]}" text-anchor="end" '
-                     f'transform="rotate(-40 {xx:.1f} {yy:.1f})">{esc(c)}</text>')
+            p.append(
+                f'<text x="{xx:.1f}" y="{yy:.1f}" font-size="10" '
+                f'fill="{COL["text_muted"]}" text-anchor="end" '
+                f'transform="rotate(-40 {xx:.1f} {yy:.1f})">{esc(c)}</text>'
+            )
 
     def area(self, values, color, opacity=0.12):
         pts = " ".join(f"{self.x(i):.1f},{self.y(v):.1f}" for i, v in enumerate(values))
         base = f"{self.x(len(values) - 1):.1f},{self.y(0):.1f} {self.x(0):.1f},{self.y(0):.1f}"
-        self.parts.append(f'<polygon points="{pts} {base}" fill="{color}" '
-                          f'fill-opacity="{opacity}" stroke="none" />')
+        self.parts.append(
+            f'<polygon points="{pts} {base}" fill="{color}" '
+            f'fill-opacity="{opacity}" stroke="none" />'
+        )
 
     def line(self, values, color, width=2.0, dots=True):
         pts = " ".join(f"{self.x(i):.1f},{self.y(v):.1f}" for i, v in enumerate(values))
-        self.parts.append(f'<polyline points="{pts}" fill="none" stroke="{color}" '
-                          f'stroke-width="{width}" stroke-linejoin="round" />')
+        self.parts.append(
+            f'<polyline points="{pts}" fill="none" stroke="{color}" '
+            f'stroke-width="{width}" stroke-linejoin="round" />'
+        )
         if dots:
             for i, v in enumerate(values):
-                self.parts.append(f'<circle cx="{self.x(i):.1f}" cy="{self.y(v):.1f}" '
-                                  f'r="2.6" fill="{color}" />')
+                self.parts.append(
+                    f'<circle cx="{self.x(i):.1f}" cy="{self.y(v):.1f}" r="2.6" fill="{color}" />'
+                )
 
     def legend(self, entries):
         lx = self.ml + self.plot_w + 16
         ly = self.mt + 4
         for i, (label, color) in enumerate(entries):
             yy = ly + i * 20
-            self.parts.append(f'<rect x="{lx}" y="{yy - 9}" width="12" height="12" '
-                              f'rx="2" fill="{color}" />')
-            self.parts.append(f'<text x="{lx + 18}" y="{yy + 1}" font-size="11" '
-                              f'fill="{COL["text"]}">{esc(label)}</text>')
+            self.parts.append(
+                f'<rect x="{lx}" y="{yy - 9}" width="12" height="12" rx="2" fill="{color}" />'
+            )
+            self.parts.append(
+                f'<text x="{lx + 18}" y="{yy + 1}" font-size="11" '
+                f'fill="{COL["text"]}">{esc(label)}</text>'
+            )
 
     def svg(self) -> str:
         body = "\n  ".join(self.parts)
-        return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{self.W}" '
-                f'height="{self.H}" viewBox="0 0 {self.W} {self.H}" '
-                f'font-family="system-ui, -apple-system, Segoe UI, sans-serif">\n'
-                f'  <rect width="{self.W}" height="{self.H}" fill="#FFFFFF" />\n'
-                f'  {body}\n</svg>\n')
+        return (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{self.W}" '
+            f'height="{self.H}" viewBox="0 0 {self.W} {self.H}" '
+            f'font-family="system-ui, -apple-system, Segoe UI, sans-serif">\n'
+            f'  <rect width="{self.W}" height="{self.H}" fill="#FFFFFF" />\n'
+            f"  {body}\n</svg>\n"
+        )
 
 
 def burnup_svg(ok, title, subtitle, show_in_progress=False, show_unspecified=False) -> str:
@@ -226,10 +255,29 @@ def burnup_svg(ok, title, subtitle, show_in_progress=False, show_unspecified=Fal
 # a Python dependency, and degrade gracefully when none is installed.
 PNG_CONVERTERS = (
     ("rsvg-convert", lambda svg, png, s: ["rsvg-convert", "-z", str(s), "-o", str(png), str(svg)]),
-    ("inkscape", lambda svg, png, s: ["inkscape", str(svg), "--export-type=png",
-                                      f"--export-filename={png}", "--export-dpi", str(int(96 * s))]),
-    ("convert", lambda svg, png, s: ["convert", "-density", str(int(96 * s)),
-                                     "-background", "none", str(svg), str(png)]),
+    (
+        "inkscape",
+        lambda svg, png, s: [
+            "inkscape",
+            str(svg),
+            "--export-type=png",
+            f"--export-filename={png}",
+            "--export-dpi",
+            str(int(96 * s)),
+        ],
+    ),
+    (
+        "convert",
+        lambda svg, png, s: [
+            "convert",
+            "-density",
+            str(int(96 * s)),
+            "-background",
+            "none",
+            str(svg),
+            str(png),
+        ],
+    ),
 )
 
 
@@ -238,6 +286,7 @@ def svg_to_png(svg_path: Path, png_path: Path, scale: float) -> bool:
     True on success; prints a hint and returns False if none is on PATH."""
     import shutil
     import subprocess
+
     for name, build_cmd in PNG_CONVERTERS:
         if shutil.which(name) is None:
             continue
@@ -249,29 +298,45 @@ def svg_to_png(svg_path: Path, png_path: Path, scale: float) -> bool:
             return False
         print(f"wrote {png_path} (via {name})")
         return True
-    print("no SVG->PNG converter found (install rsvg-convert, inkscape, or "
-          "imagemagick); wrote SVG only", file=sys.stderr)
+    print(
+        "no SVG->PNG converter found (install rsvg-convert, inkscape, or "
+        "imagemagick); wrote SVG only",
+        file=sys.stderr,
+    )
     return False
 
 
 def parse_args(argv):
-    p = argparse.ArgumentParser(description="Render a verification burn-up SVG from a progress history file.")
+    p = argparse.ArgumentParser(
+        description="Render a verification burn-up SVG from a progress history file."
+    )
     p.add_argument("input", type=Path, help="progress-<name>.jsonl or .csv")
     p.add_argument("-o", "--output", type=Path, help="Output SVG (default: alongside input).")
     p.add_argument("--title", help="Chart title (default: derived from the repo).")
     p.add_argument(
-        "--in-progress", action="store_true",
+        "--in-progress",
+        action="store_true",
         help="Also draw the in-progress curve: the `yellow` atom count "
-             "(incomplete proof — sorry / assume), per the VeriLib status model.")
+        "(incomplete proof — sorry / assume), per the VeriLib status model.",
+    )
     p.add_argument(
-        "--unspecified", action="store_true",
+        "--unspecified",
+        action="store_true",
         help="Also draw the unspecified curve: the `white` atom count "
-             "(tracked but no spec written yet). Distinct from --in-progress.")
-    p.add_argument("--png", action="store_true",
-                   help="Also write a PNG alongside the SVG (needs rsvg-convert, "
-                        "inkscape, or imagemagick on PATH).")
-    p.add_argument("--png-scale", type=float, default=2.0,
-                   help="PNG raster scale factor (default: 2.0 for crisp output).")
+        "(tracked but no spec written yet). Distinct from --in-progress.",
+    )
+    p.add_argument(
+        "--png",
+        action="store_true",
+        help="Also write a PNG alongside the SVG (needs rsvg-convert, "
+        "inkscape, or imagemagick on PATH).",
+    )
+    p.add_argument(
+        "--png-scale",
+        type=float,
+        default=2.0,
+        help="PNG raster scale factor (default: 2.0 for crisp output).",
+    )
     return p.parse_args(argv)
 
 
@@ -285,14 +350,16 @@ def main(argv=None) -> int:
 
     repo = ok[0].get("repo", args.input.stem)
     n_gap = len(records) - len(ok)
-    subtitle = (f"{repo} · {len(ok)} samples"
-                + (f" · {n_gap} gap(s) omitted" if n_gap else "")
-                + f" · source: {args.input.name}")
+    subtitle = (
+        f"{repo} · {len(ok)} samples"
+        + (f" · {n_gap} gap(s) omitted" if n_gap else "")
+        + f" · source: {args.input.name}"
+    )
 
     title = args.title or f"{repo} — verification burn-up"
-    svg = burnup_svg(ok, title, subtitle,
-                     show_in_progress=args.in_progress,
-                     show_unspecified=args.unspecified)
+    svg = burnup_svg(
+        ok, title, subtitle, show_in_progress=args.in_progress, show_unspecified=args.unspecified
+    )
     # Default alongside the input: data/<name>/progress.jsonl -> .../burnup.svg.
     # (Pass -o for variants like burnup-inprogress.svg so they don't collide.)
     default_stem = "burnup" if args.input.stem == "progress" else f"{args.input.stem}-burnup"

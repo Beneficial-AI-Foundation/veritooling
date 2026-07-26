@@ -27,6 +27,7 @@ Usage examples:
     progress_history.py /path/to/SparsePostQuantumRatchet-verify \\
         --pipeline aeneas --since 2026-03-13 --sample-timeout 3600
 """
+
 from __future__ import annotations
 
 import argparse
@@ -53,13 +54,34 @@ _VERUS_STATE: dict = {}
 
 # Fixed column order for the CSV / JSONL records.
 METRIC_FIELDS = [
-    "grey", "white", "red", "yellow", "light_green", "dark_green", "purple",
-    "exec_total", "dot_red", "dot_yellow", "dot_green", "art_total",
-    "tracked", "verified", "verified_trusted", "translated",
+    "grey",
+    "white",
+    "red",
+    "yellow",
+    "light_green",
+    "dark_green",
+    "purple",
+    "exec_total",
+    "dot_red",
+    "dot_yellow",
+    "dot_green",
+    "art_total",
+    "tracked",
+    "verified",
+    "verified_trusted",
+    "translated",
 ]
 RECORD_FIELDS = [
-    "repo", "pipeline", "sample_date", "commit", "commit_date",
-    "tool", "tool_version", "status", "reason", "commit_validated",
+    "repo",
+    "pipeline",
+    "sample_date",
+    "commit",
+    "commit_date",
+    "tool",
+    "tool_version",
+    "status",
+    "reason",
+    "commit_validated",
     "duration_sec",
 ] + METRIC_FIELDS
 
@@ -76,9 +98,13 @@ def run(cmd, cwd=None, timeout=None, env=None):
     hung tool (e.g. Charon) and all its children are killed on timeout.
     """
     proc = subprocess.Popen(
-        cmd, cwd=cwd, env=env,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, start_new_session=True,
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
     )
     try:
         out, _ = proc.communicate(timeout=timeout)
@@ -160,8 +186,9 @@ def detect_verus_version(project_dir: Path, probe_verus: str) -> str | None:
     --detect-version``), which maps the rev to a Verus release string such as
     ``0.2025.08.01.33c6cec``.
     """
-    code, out = run([probe_verus, "setup", "--from-project", str(project_dir),
-                     "--detect-version"], timeout=180)
+    code, out = run(
+        [probe_verus, "setup", "--from-project", str(project_dir), "--detect-version"], timeout=180
+    )
     if code != 0:
         return None
     for line in reversed((out or "").splitlines()):
@@ -248,8 +275,11 @@ def bucket_samples(commits, anchor_idx: int, cadence_weeks: int):
 # --------------------------------------------------------------------------- #
 # Extract JSON discovery + validation
 # --------------------------------------------------------------------------- #
-UNIFIED_SCHEMA = {"verus": "probe-verus/extract", "aeneas": "probe-aeneas/extract",
-                  "lean": "probe-lean/extract"}
+UNIFIED_SCHEMA = {
+    "verus": "probe-verus/extract",
+    "aeneas": "probe-aeneas/extract",
+    "lean": "probe-lean/extract",
+}
 
 
 def find_fresh_extract(project_dir: Path, pipeline: str, since_ts: float):
@@ -320,8 +350,9 @@ def verus_setup(project_dir, args, state):
     if release == state.get("verus_release"):
         return None
     print(f"  [setup] verus release {release} (changed) -> probe-verus setup")
-    code, out = run([args.probe_verus, "setup", "--from-project", str(project_dir)],
-                    timeout=args.setup_timeout)
+    code, out = run(
+        [args.probe_verus, "setup", "--from-project", str(project_dir)], timeout=args.setup_timeout
+    )
     if code != 0:
         return f"verus setup failed (release {release}, code {code})"
     state["verus_release"] = release
@@ -405,8 +436,11 @@ def lean_sync_deps(project_dir: Path):
         data = json.loads(manifest.read_text(encoding="utf-8", errors="ignore"))
     except Exception:
         return
-    want = {_norm_url(p.get("url")): p.get("rev")
-            for p in data.get("packages", []) if p.get("url") and p.get("rev")}
+    want = {
+        _norm_url(p.get("url")): p.get("rev")
+        for p in data.get("packages", [])
+        if p.get("url") and p.get("rev")
+    }
     for d in sorted(pkgs.iterdir()):
         if not (d / ".git").exists():
             continue
@@ -478,8 +512,10 @@ def lean_prepare(project_dir: Path):
         print(f"  [lean] lake exe cache get ({tc})")
         code, out = run(["lake", "exe", "cache", "get"], cwd=project_dir, timeout=1800)
         if code != 0:
-            print(f"  [lean][warn] lake exe cache get exit={code} "
-                  f"(may force a slow source build): {_last_line(out)}")
+            print(
+                f"  [lean][warn] lake exe cache get exit={code} "
+                f"(may force a slow source build): {_last_line(out)}"
+            )
     else:
         # Same toolchain: keep dep/Mathlib builds (expensive), but drop the ROOT
         # project build so this commit's regenerated modules rebuild cleanly.
@@ -581,32 +617,67 @@ def blank_metrics():
 # Main
 # --------------------------------------------------------------------------- #
 def parse_args(argv):
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("repo", help="GitHub URL or local path to the project repo.")
     p.add_argument("--pipeline", choices=["auto", "verus", "aeneas", "lean"], default="auto")
-    p.add_argument("--project-subdir", default=".", help="Subdir containing the project (Cargo.toml / aeneas-config.yml).")
+    p.add_argument(
+        "--project-subdir",
+        default=".",
+        help="Subdir containing the project (Cargo.toml / aeneas-config.yml).",
+    )
     p.add_argument("--package", help="Verus workspace package name (probe-verus -p).")
     p.add_argument("--anchor-day", choices=WEEKDAYS, default="friday")
-    p.add_argument("--cadence", choices=["weekly", "biweekly", "monthly"], default="weekly",
-                   help="Sampling cadence (monthly = 4-week periods).")
-    p.add_argument("--cadence-weeks", type=int, default=None,
-                   help="Override --cadence with an explicit period length in weeks (coarser sampling).")
+    p.add_argument(
+        "--cadence",
+        choices=["weekly", "biweekly", "monthly"],
+        default="weekly",
+        help="Sampling cadence (monthly = 4-week periods).",
+    )
+    p.add_argument(
+        "--cadence-weeks",
+        type=int,
+        default=None,
+        help="Override --cadence with an explicit period length in weeks (coarser sampling).",
+    )
     p.add_argument("--since", help="Only sample commits since this date/rev (git --since).")
     p.add_argument("--until", help="Only sample commits until this date/rev (git --until).")
     p.add_argument("--branch", help="Ref to enumerate history from (default: origin/HEAD).")
     p.add_argument("--work-clone", type=Path, help="Persistent clone dir (default: temp, reused).")
-    p.add_argument("--output", type=Path, help="JSONL output path (default: data/<name>/progress.jsonl).")
+    p.add_argument(
+        "--output", type=Path, help="JSONL output path (default: data/<name>/progress.jsonl)."
+    )
     p.add_argument("--csv", type=Path, help="CSV output path (default: alongside JSONL).")
-    p.add_argument("--sample-timeout", type=int, default=7200, help="Per-sample extract timeout (s).")
+    p.add_argument(
+        "--sample-timeout", type=int, default=7200, help="Per-sample extract timeout (s)."
+    )
     p.add_argument("--setup-timeout", type=int, default=3600, help="probe-verus setup timeout (s).")
     p.add_argument("--resume", action="store_true", help="Skip commits already in the output.")
-    p.add_argument("--retry-failed", action="store_true", help="With --resume, re-run non-ok samples.")
+    p.add_argument(
+        "--retry-failed", action="store_true", help="With --resume, re-run non-ok samples."
+    )
     p.add_argument("--probe-verus", default="probe-verus", help="Pinned probe-verus binary.")
     p.add_argument("--probe-aeneas", default="probe-aeneas", help="Pinned probe-aeneas binary.")
-    p.add_argument("--smt-seed", type=int, default=0, help="Verus SMT random seed (determinism); -1 to disable.")
-    p.add_argument("--verus-args", nargs=argparse.REMAINDER, help="Extra args forwarded to Verus (override).")
-    p.add_argument("--skip-verify", action="store_true", help="Structure-only (no verified counts); for dry runs.")
-    p.add_argument("--dry-run", action="store_true", help="List the samples that would be processed, then exit.")
+    p.add_argument(
+        "--smt-seed",
+        type=int,
+        default=0,
+        help="Verus SMT random seed (determinism); -1 to disable.",
+    )
+    p.add_argument(
+        "--verus-args", nargs=argparse.REMAINDER, help="Extra args forwarded to Verus (override)."
+    )
+    p.add_argument(
+        "--skip-verify",
+        action="store_true",
+        help="Structure-only (no verified counts); for dry runs.",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="List the samples that would be processed, then exit.",
+    )
     return p.parse_args(argv)
 
 
@@ -622,7 +693,9 @@ def main(argv=None):
     jsonl = (args.output or DATA_DIR / name / "progress.jsonl").resolve()
     csv_path = (args.csv or jsonl.with_suffix(".csv")).resolve()
     jsonl.parent.mkdir(parents=True, exist_ok=True)
-    work_clone = args.work_clone or Path(tempfile.gettempdir()) / "verification-progress-history" / name
+    work_clone = (
+        args.work_clone or Path(tempfile.gettempdir()) / "verification-progress-history" / name
+    )
 
     work_clone = ensure_work_clone(args.repo, work_clone)
     project_dir = (work_clone / args.project_subdir).resolve()
@@ -634,8 +707,11 @@ def main(argv=None):
         # `lean` can be requested or auto-detected, but extract is only wired for
         # verus/aeneas. Fail fast with a clear message instead of a late,
         # per-sample `extract_failed`. Lean projects are sampled via `aeneas`.
-        print(f"[error] --pipeline {pipeline} is not supported (only verus/aeneas; "
-              f"Lean projects use --pipeline aeneas).", file=sys.stderr)
+        print(
+            f"[error] --pipeline {pipeline} is not supported (only verus/aeneas; "
+            f"Lean projects use --pipeline aeneas).",
+            file=sys.stderr,
+        )
         return 2
     print(f"[pipeline] {pipeline}  project={project_dir}")
     if pipeline == "aeneas" and args.skip_verify:
@@ -648,8 +724,10 @@ def main(argv=None):
     cadence_weeks = args.cadence_weeks or {"weekly": 1, "biweekly": 2, "monthly": 4}[args.cadence]
     cadence_label = f"{cadence_weeks}-week" if args.cadence_weeks else args.cadence
     samples = bucket_samples(commits, anchor_idx, cadence_weeks)
-    print(f"[samples] {len(samples)} periods from {len(commits)} commits "
-          f"({cadence_label}, anchor={args.anchor_day})")
+    print(
+        f"[samples] {len(samples)} periods from {len(commits)} commits "
+        f"({cadence_label}, anchor={args.anchor_day})"
+    )
 
     if args.dry_run:
         for sd, sha, dt in samples:
@@ -678,15 +756,21 @@ def main(argv=None):
         print(f"{tag} -> checkout + extract")
         started = time.time()
         record = {
-            "repo": name, "pipeline": pipeline, "sample_date": sample_date,
-            "commit": sha, "commit_date": commit_dt.isoformat(),
+            "repo": name,
+            "pipeline": pipeline,
+            "sample_date": sample_date,
+            "commit": sha,
+            "commit_date": commit_dt.isoformat(),
             # Default the tool from the pipeline so failure records stay
             # consistent (not blank `tool` with a populated `tool_version`);
             # a successful extract overwrites this from the envelope.
             "tool": {"verus": "probe-verus", "aeneas": "probe-aeneas"}.get(pipeline, ""),
             "tool_version": tool_versions.get(pipeline, ""),
-            "status": "", "reason": "", "commit_validated": False,
-            "duration_sec": 0, **blank_metrics(),
+            "status": "",
+            "reason": "",
+            "commit_validated": False,
+            "duration_sec": 0,
+            **blank_metrics(),
         }
         try:
             git(["checkout", "-f", sha], cwd=work_clone)
@@ -757,7 +841,9 @@ def main(argv=None):
         # present (some failed/verified/unverified) => verify ran, record it.
         # Non-zero with only none/trusted => verify did not run (build/toolchain
         # error) -> a visible gap, not a real "0 verified" data point.
-        dynamic = metrics["red"] + metrics["yellow"] + metrics["light_green"] + metrics["dark_green"]
+        dynamic = (
+            metrics["red"] + metrics["yellow"] + metrics["light_green"] + metrics["dark_green"]
+        )
         if args.skip_verify or code == 0 or dynamic > 0:
             record["status"] = "ok"
             record["reason"] = "; ".join(metrics["warnings"])
@@ -766,11 +852,15 @@ def main(argv=None):
             processed += 1
         else:
             record["status"] = "verify_error"
-            record["reason"] = f"verify produced no statuses (exit={code}); likely build/toolchain error"
+            record["reason"] = (
+                f"verify produced no statuses (exit={code}); likely build/toolchain error"
+            )
         append_record(jsonl, csv_path, record)
-        print(f"     {record['status']}: tracked={metrics['tracked']} verified={metrics['verified']} "
-              f"v+t={metrics['verified_trusted']} translated={metrics['translated']} "
-              f"({record['duration_sec']}s)")
+        print(
+            f"     {record['status']}: tracked={metrics['tracked']} verified={metrics['verified']} "
+            f"v+t={metrics['verified_trusted']} translated={metrics['translated']} "
+            f"({record['duration_sec']}s)"
+        )
 
     print(f"[done] processed {processed} new sample(s); output: {jsonl}")
     print(f"       CSV: {csv_path}")

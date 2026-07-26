@@ -32,6 +32,7 @@ Usage:
     colors.py <extract.json>          # print the metric record as JSON
     colors.py <extract.json> --table  # human-readable table (parity with the .sh)
 """
+
 from __future__ import annotations
 
 import argparse
@@ -201,7 +202,9 @@ def _format_table(m: dict) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Count atoms per colour (bar + dot channels).")
     parser.add_argument("input", type=Path, help="Path to a probe extract JSON envelope.")
-    parser.add_argument("--table", action="store_true", help="Human-readable table instead of JSON.")
+    parser.add_argument(
+        "--table", action="store_true", help="Human-readable table instead of JSON."
+    )
     args = parser.parse_args(argv)
 
     if not args.input.is_file():
