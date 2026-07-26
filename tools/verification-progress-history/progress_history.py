@@ -34,6 +34,7 @@ import csv
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -331,16 +332,116 @@ def detect_lean_toolchain(project_dir: Path) -> str | None:
     return None
 
 
-def lean_prepare(project_dir: Path):
-    """Clean the Lean build when the toolchain changed since the last build in
-    this work-clone. Cross-commit ``.lake`` cache reuse speeds up same-toolchain
-    samples, but ``.olean`` compiled by one Lean version fail to import under
-    another ("stale .olean" error), so we must ``lake clean`` on a toolchain
-    change (the Lean analog of per-release Verus setup).
+def _norm_url(u: str | None) -> str | None:
+    if not u:
+        return None
+    return u.strip().rstrip("/").removesuffix(".git").lower()
 
-    Uses an on-disk sentinel under ``.lake`` so the decision survives across
-    resume/retry runs (in-memory state would be empty on a fresh process while
-    the build cache on disk is from a different toolchain).
+
+def _aeneas_crate_dir(project_dir: Path) -> str:
+    """Read ``crate.dir`` from aeneas-config.yml (stdlib-only, no PyYAML)."""
+    cfg = project_dir / "aeneas-config.yml"
+    if not cfg.is_file():
+        return "."
+    in_crate = False
+    for line in cfg.read_text(encoding="utf-8", errors="ignore").splitlines():
+        if re.match(r"^\S", line):  # top-level key -> leaving any block
+            in_crate = line.strip().startswith("crate:")
+            continue
+        if in_crate:
+            m = re.match(r"\s+dir:\s*[\"']?([^\"'#\n]+?)[\"']?\s*$", line)
+            if m:
+                return m.group(1).strip()
+    return "."
+
+
+def lean_clear_extract_cache(project_dir: Path):
+    """Delete untracked probe caches so each sample regenerates them from ITS
+    commit. probe-aeneas reuses an existing ``<crate>/data/charon.llbc`` and
+    probe-rust reuses ``index.scip[.json]`` ("Using cached ..."), which would
+    otherwise carry an earlier commit's Rust atoms into every later sample."""
+    data = project_dir / _aeneas_crate_dir(project_dir) / "data"
+    for name in ("charon.llbc", "index.scip", "index.scip.json"):
+        f = data / name
+        try:
+            if f.is_file():
+                f.unlink()
+        except OSError:
+            pass
+
+
+def lean_sync_deps(project_dir: Path):
+    """Check out each git dependency at its manifest-pinned rev.
+
+    Two problems this solves for historical samples in a reused work-clone:
+      * ``lake`` cannot fetch a now-unadvertised historical rev (an old branch
+        tip that moved/was deleted): its own ``git fetch`` won't retrieve it and
+        the build dies with "fatal: unable to read tree <rev>".
+      * ``lake clean`` / ``cache get`` reset dep clones back to their default
+        branch, so fetching earlier in the run isn't enough.
+
+    We fetch the exact rev by SHA (GitHub serves reachable-but-unadvertised SHAs)
+    and check the dep out ourselves. Lake then sees the dep already at the pinned
+    rev and builds it without re-fetching. Packages are matched to manifest
+    entries by remote URL (dir names don't always equal manifest names, e.g.
+    ``ProofWidgets4`` -> ``proofwidgets``). Runs LAST in ``lean_prepare`` so it
+    is not undone by a preceding lake clean/cache-get.
+    """
+    manifest = project_dir / "lake-manifest.json"
+    pkgs = project_dir / ".lake" / "packages"
+    if not (manifest.is_file() and pkgs.is_dir()):
+        return
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8", errors="ignore"))
+    except Exception:
+        return
+    want = {_norm_url(p.get("url")): p.get("rev")
+            for p in data.get("packages", []) if p.get("url") and p.get("rev")}
+    for d in sorted(pkgs.iterdir()):
+        if not (d / ".git").exists():
+            continue
+        code, url = run(["git", "-C", str(d), "remote", "get-url", "origin"])
+        rev = want.get(_norm_url(url)) if code == 0 else None
+        if not rev:
+            continue
+        # Only intervene when the rev's TREE is missing (lake can't fetch this
+        # now-unadvertised historical rev). If the tree is present, lake resolves
+        # it normally -- do NOT force-checkout, or we'd churn deps like
+        # ProofWidgets whose prebuilt JS is keyed to a specific rev's source hash
+        # ("ProofWidgets not up-to-date"). We check ^{tree} (not just ^{commit})
+        # because lake's dep clones can be shallow/partial.
+        have, _ = run(["git", "-C", str(d), "cat-file", "-e", f"{rev}^{{tree}}"])
+        if have == 0:
+            continue
+        print(f"  [lean] fetch+checkout {d.name} @ {rev[:12]} (unadvertised rev)")
+        code, _ = run(["git", "-C", str(d), "fetch", "--quiet", "origin", rev], timeout=900)
+        if code != 0:  # server may refuse fetch-by-sha; fall back to full fetch
+            run(["git", "-C", str(d), "fetch", "--quiet", "--all", "--tags"], timeout=1800)
+        code, _ = run(["git", "-C", str(d), "checkout", "--detach", "--force", rev])
+        if code != 0:
+            print(f"  [lean] WARNING: could not check out {d.name} @ {rev[:12]}")
+
+
+def lean_prepare(project_dir: Path):
+    """Prepare the Lean/Aeneas build for a fresh sample in the shared work-clone.
+
+    Two cross-commit hazards, both handled here:
+      * Stale ``.olean``: a build compiled by one Lean toolchain can't be imported
+        by another. On a toolchain change we ``lake clean`` + refresh the Mathlib
+        cache. An on-disk sentinel records the last toolchain so the decision
+        survives resume/retry runs (in-memory state would be empty on a fresh
+        process while the on-disk cache is from a different toolchain).
+      * Module collisions: Aeneas regenerates the root project's Lean sources
+        every commit, so on same-toolchain samples we drop the ROOT project build
+        (``.lake/build``) so regenerated modules don't collide with stale oleans
+        ("environment already contains <module>").
+      * Missing / moved dep revs: the manifest re-pins dep revs per commit and
+        lake can't fetch unadvertised historical revs. ``lean_sync_deps`` fetches
+        + checks out only such deps at their pinned rev. It runs BEFORE ``cache
+        get`` (so lake's dep resolution doesn't die on the missing rev) and AGAIN
+        after (in case a lake step reset it) -- and is surgical, so advertised
+        deps like ProofWidgets (whose prebuilt JS is keyed to a rev) are left
+        untouched.
     """
     tc = detect_lean_toolchain(project_dir)
     if not tc:
@@ -348,17 +449,29 @@ def lean_prepare(project_dir: Path):
     lake_dir = project_dir / ".lake"
     sentinel = lake_dir / ".vph-lean-toolchain"
     prev = sentinel.read_text(encoding="utf-8").strip() if sentinel.is_file() else None
-    if prev == tc:
-        return
-    build_exists = (lake_dir / "build").exists()
-    if prev is not None or build_exists:
-        # Toolchain changed, or a pre-existing cache of unknown toolchain: clean
-        # the project build and refresh dependency oleans for the new toolchain.
-        print(f"  [lean] toolchain -> {tc} (changed/unknown cache) -> lake clean")
-        run(["lake", "clean"], cwd=project_dir, timeout=600)
-        # mathlib and similar ship a `cache get` exe that fetches prebuilt
-        # oleans matching the pinned rev + toolchain; harmless no-op elsewhere.
+    if prev != tc:
+        # Toolchain changed (or first build in this clone): clean any prior build
+        # and (re)fetch prebuilt oleans for this toolchain.
+        if (lake_dir / "build").exists():
+            print(f"  [lean] toolchain -> {tc} (changed) -> lake clean")
+            run(["lake", "clean"], cwd=project_dir, timeout=600)
+        # Make unadvertised dep revs available before cache-get resolves deps,
+        # otherwise resolution dies ("unable to read tree") and oleans aren't
+        # fetched (forcing a slow Mathlib source build).
+        lean_sync_deps(project_dir)
+        # mathlib ships a `cache get` exe that fetches prebuilt oleans matching
+        # the pinned rev + toolchain; harmless no-op elsewhere.
+        print(f"  [lean] lake exe cache get ({tc})")
         run(["lake", "exe", "cache", "get"], cwd=project_dir, timeout=1800)
+    else:
+        # Same toolchain: keep dep/Mathlib builds (expensive), but drop the ROOT
+        # project build so this commit's regenerated modules rebuild cleanly.
+        build = lake_dir / "build"
+        if build.exists():
+            print(f"  [lean] same toolchain {tc} -> drop root .lake/build (fresh regen)")
+            shutil.rmtree(build, ignore_errors=True)
+    # Final: re-pin unadvertised dep revs in case a lake step reset them.
+    lean_sync_deps(project_dir)
     lake_dir.mkdir(parents=True, exist_ok=True)
     sentinel.write_text(tc, encoding="utf-8")
 
@@ -556,6 +669,14 @@ def main(argv=None):
         }
         try:
             git(["checkout", "-f", sha], cwd=work_clone)
+            if pipeline == "aeneas":
+                # Force per-commit regeneration of the untracked probe caches
+                # (charon.llbc + SCIP index): otherwise probe reuses a stale one
+                # from an earlier commit ("Using cached Charon LLBC" / "Found
+                # existing SCIP JSON"). Targeted removal only touches these pure
+                # caches -- a broad ``git clean`` would also delete gitignored
+                # build outputs (e.g. *_Template.lean).
+                lean_clear_extract_cache(project_dir)
         except RuntimeError as e:
             record["status"] = "checkout_failed"
             record["reason"] = str(e).splitlines()[-1][:300]
@@ -587,8 +708,10 @@ def main(argv=None):
             record["status"] = "timeout" if code is None else "extract_failed"
             tail = "\n".join((out or "").splitlines()[-6:])
             record["reason"] = (f"no fresh unified JSON; exit={code}; {tail}")[:300]
+            dbg = Path(tempfile.gettempdir()) / f"vph-extract-{sha[:12]}.log"
+            dbg.write_text(out or "", encoding="utf-8", errors="ignore")
             append_record(jsonl, csv_path, record)
-            print(f"     {record['status']}: exit={code}")
+            print(f"     {record['status']}: exit={code} (full output: {dbg})")
             continue
 
         rec_commit = envelope_commit(env)
