@@ -1,12 +1,16 @@
 """progress_history: pure helpers, sampling, and JSONL/CSV output.
 
-Only deterministic units are covered; anything needing git or the probe
-binaries is left to the run guide.
+Deterministic units only; the probe binaries are left to the run guide. One test
+drives a throwaway git repo (skipped when git is absent).
 """
 
+import os
+import shutil
+import subprocess
 from datetime import datetime, timezone
 
 import progress_history as ph
+import pytest
 
 
 def test_last_line():
@@ -71,6 +75,34 @@ def test_bucket_samples_one_per_period_plus_head():
     weekly = ph.bucket_samples(commits, friday, 1)
     shas = [s for _, s, _ in weekly]
     assert shas == ["b", "c"]  # 'a' dropped (same week as 'b'), HEAD 'c' present
+
+
+def _git(cwd, *args, date=None):
+    env = dict(os.environ)
+    if date:
+        env["GIT_AUTHOR_DATE"] = env["GIT_COMMITTER_DATE"] = date
+    subprocess.run(["git", *args], cwd=cwd, env=env, check=True, capture_output=True)
+
+
+def test_resolve_commits_orders_and_anchors(tmp_path):
+    if not shutil.which("git"):
+        pytest.skip("git not available")
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "t@t")
+    _git(tmp_path, "config", "user.name", "t")
+    (tmp_path / "a").write_text("1")
+    _git(tmp_path, "add", "a")
+    _git(tmp_path, "commit", "-qm", "c1", date="2026-01-07T12:00:00+00:00")  # Wed
+    (tmp_path / "a").write_text("2")
+    _git(tmp_path, "add", "a")
+    _git(tmp_path, "commit", "-qm", "c2", date="2026-01-15T12:00:00+00:00")  # Thu
+
+    friday = ph.WEEKDAYS.index("friday")
+    # pass newest-first to prove it re-sorts oldest -> newest
+    samples = ph.resolve_commits(tmp_path, ["HEAD", "HEAD~1"], friday)
+    dates = [sd for sd, _, _ in samples]
+    assert dates == ["2026-01-09", "2026-01-16"]  # Friday on/after each commit
+    assert all(len(sha) == 40 for _, sha, _ in samples)
 
 
 def test_append_record_upserts_by_commit(tmp_path):

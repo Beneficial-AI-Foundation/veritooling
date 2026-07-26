@@ -64,6 +64,19 @@ python3 progress_history.py /path/to/curve25519-dalek-lean-verify \
 >= v4.28.0-rc1 (reached 2026-02-23) and `probe-aeneas extract` needs
 `aeneas-config.yml` (added 2026-03-11).
 
+### A single commit
+
+To (re)sample one commit and update its row, pass `--commit` (repeatable) instead
+of a date range. It runs those commits and upserts them by SHA, leaving the rest
+of the series untouched. Useful for filling in a new HEAD or redoing a commit
+that failed.
+
+```bash
+python3 progress_history.py /path/to/dalek-verus \
+  --pipeline verus --project-subdir curve25519-dalek --package curve25519-dalek \
+  --commit HEAD --work-clone /tmp/vph-dalek-verus
+```
+
 Other options: `--cadence {weekly,biweekly,monthly}` (or `--cadence-weeks N`),
 `--anchor-day`, `--branch`, `--until`, `--output`/`--csv`, `--smt-seed`,
 `--skip-verify`. Run `--help` for the full list.

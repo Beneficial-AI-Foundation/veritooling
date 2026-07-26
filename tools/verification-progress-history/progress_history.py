@@ -3,8 +3,8 @@
 
 Samples one commit per period (default: weekly, last commit on/before each
 Friday), checks it out in a persistent work-clone, runs the matching probe
-``extract`` (which runs the real verifier), and appends the full count-colors
-metric set to an append-only JSONL time series (plus a regenerated CSV). The
+``extract`` (which runs the real verifier), and records the full count-colors
+metric set to a JSONL time series, upserted by commit (plus a regenerated CSV). The
 output feeds the burn-up chart defined in the VeriLib engineering docs
 ("Atom statuses and colours", section "Progress chart (burn-up over time)").
 
@@ -270,6 +270,31 @@ def bucket_samples(commits, anchor_idx: int, cadence_weeks: int):
         if not any(sha == head_sha for _, sha, _ in result):
             result.append((head_dt.date().isoformat(), head_sha, head_dt))
     return result
+
+
+def resolve_commits(work_clone: Path, refs: list[str], anchor_idx: int):
+    """Resolve explicit commit refs to samples, sorted oldest -> newest.
+
+    Each ref is validated and expanded to a full SHA (fetching once if it is not
+    present yet); the sample_date reuses the same anchor-day label the periodic
+    path produces, so re-running a commit upserts cleanly onto the existing grid.
+    Returns [(sample_date_iso, sha, commit_datetime)].
+    """
+    resolved, seen = [], set()
+    for ref in refs:
+        try:
+            sha = git(["rev-parse", "--verify", f"{ref}^{{commit}}"], cwd=work_clone)
+        except RuntimeError:
+            git(["fetch", "--all", "--tags", "--quiet"], cwd=work_clone)
+            sha = git(["rev-parse", "--verify", f"{ref}^{{commit}}"], cwd=work_clone)
+        if sha in seen:  # same commit passed twice / short+full of one commit
+            continue
+        seen.add(sha)
+        iso = git(["show", "-s", "--format=%cI", sha], cwd=work_clone)
+        dt = datetime.fromisoformat(iso).astimezone(timezone.utc)
+        resolved.append((sha, dt))
+    resolved.sort(key=lambda c: c[1])
+    return [(anchor_friday(dt, anchor_idx).date().isoformat(), sha, dt) for sha, dt in resolved]
 
 
 # --------------------------------------------------------------------------- #
@@ -641,6 +666,14 @@ def parse_args(argv):
         default=None,
         help="Override --cadence with an explicit period length in weeks (coarser sampling).",
     )
+    p.add_argument(
+        "--commit",
+        action="append",
+        metavar="REF",
+        help="Sample exactly this commit instead of walking history by cadence "
+        "(repeatable). Each is upserted into the JSONL by commit. Overrides "
+        "--since/--until/--cadence/--branch and always (re)runs the named commits.",
+    )
     p.add_argument("--since", help="Only sample commits since this date/rev (git --since).")
     p.add_argument("--until", help="Only sample commits until this date/rev (git --until).")
     p.add_argument("--branch", help="Ref to enumerate history from (default: origin/HEAD).")
@@ -717,17 +750,28 @@ def main(argv=None):
     if pipeline == "aeneas" and args.skip_verify:
         print("[warn] --skip-verify is ignored for aeneas (probe-aeneas does not forward it)")
 
-    ref = args.branch or default_ref(work_clone)
-    commits = list_commits(work_clone, ref, args.since, args.until)
-    print(f"[history] ref={ref}")
     anchor_idx = WEEKDAYS.index(args.anchor_day)
-    cadence_weeks = args.cadence_weeks or {"weekly": 1, "biweekly": 2, "monthly": 4}[args.cadence]
-    cadence_label = f"{cadence_weeks}-week" if args.cadence_weeks else args.cadence
-    samples = bucket_samples(commits, anchor_idx, cadence_weeks)
-    print(
-        f"[samples] {len(samples)} periods from {len(commits)} commits "
-        f"({cadence_label}, anchor={args.anchor_day})"
-    )
+    explicit = bool(args.commit)
+    if explicit:
+        try:
+            samples = resolve_commits(work_clone, args.commit, anchor_idx)
+        except RuntimeError as e:
+            print(f"[error] {e}", file=sys.stderr)
+            return 2
+        print(f"[samples] {len(samples)} explicit commit(s)")
+    else:
+        ref = args.branch or default_ref(work_clone)
+        commits = list_commits(work_clone, ref, args.since, args.until)
+        print(f"[history] ref={ref}")
+        cadence_weeks = (
+            args.cadence_weeks or {"weekly": 1, "biweekly": 2, "monthly": 4}[args.cadence]
+        )
+        cadence_label = f"{cadence_weeks}-week" if args.cadence_weeks else args.cadence
+        samples = bucket_samples(commits, anchor_idx, cadence_weeks)
+        print(
+            f"[samples] {len(samples)} periods from {len(commits)} commits "
+            f"({cadence_label}, anchor={args.anchor_day})"
+        )
 
     if args.dry_run:
         for sd, sha, dt in samples:
@@ -746,10 +790,12 @@ def main(argv=None):
     processed = 0
     for idx, (sample_date, sha, commit_dt) in enumerate(samples, 1):
         tag = f"[{idx}/{len(samples)}] {sample_date} {sha[:12]}"
-        if args.resume and sha in ok_shas:
+        # Explicit --commit always (re)runs; resume-skip only applies to the
+        # periodic history walk.
+        if not explicit and args.resume and sha in ok_shas:
             print(f"{tag} -> skip (already ok)")
             continue
-        if args.resume and sha in all_shas and not args.retry_failed:
+        if not explicit and args.resume and sha in all_shas and not args.retry_failed:
             print(f"{tag} -> skip (already present)")
             continue
 
