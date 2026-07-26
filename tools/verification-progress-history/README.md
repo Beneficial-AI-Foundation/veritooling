@@ -111,12 +111,28 @@ recent samples with a committed `translation.json` skip the Charon pre-flight.
 The `lean-toolchain` changes across this window, so the tool cleans the Lean
 build on each change (see step 3).
 
-### Deferred: curve25519-dalek-lean-verify ("dalek-lean")
+### curve25519-dalek-lean-verify (Aeneas / "dalek-lean")
 
-Skipped until it ships a `translation.json`, which lets `probe-aeneas extract`
-read def-ids from the manifest and **skip the heavy per-commit Charon pre-flight**.
-The tool is pipeline-generic, so enabling it later is just another `--pipeline
-aeneas` run config.
+```bash
+python3 progress_history.py /path/to/curve25519-dalek-lean-verify \
+  --pipeline aeneas \
+  --since 2026-03-11 \
+  --cadence monthly \
+  --work-clone /tmp/vph-dalek-lean \
+  --sample-timeout 3600 --resume
+```
+
+Reachability is bounded on **both** ends of the early history, so `--since`
+matters:
+- probe-lean needs Lean ≥ v4.28.0-rc1 (`.olean` are version-specific); dalek-lean
+  crossed that floor on **2026-02-23**, so earlier commits are unbuildable.
+- `probe-aeneas extract` needs `aeneas-config.yml`, first committed **2026-03-11**
+  — the practical start date above.
+
+This repo has **no** `translation.json`, so every sample runs the heavier Charon
+pre-flight (there is no manifest to read def-ids from). The `lean-toolchain`
+changes across the window, so the tool cleans the Lean build on each change (see
+step 3).
 
 ## Output record
 
