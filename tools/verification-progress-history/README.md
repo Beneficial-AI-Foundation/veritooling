@@ -4,8 +4,9 @@ Reconstruct a formal-verification project's **progress over git history** as a
 burn-up time series. The tool samples one commit per period (default: weekly,
 the last commit on/before each Friday), checks each out in a persistent
 work-clone, runs the matching probe `extract` (which runs the real verifier),
-and records the full colour/progress metric set to an append-only JSONL file
-plus a regenerated CSV.
+and records the full colour/progress metric set to a JSONL file (one record per
+sampled commit, upserted in place so a `--retry-failed` re-run supersedes the
+prior row rather than duplicating it) plus a regenerated CSV.
 
 The metrics and the chart they feed are defined in the VeriLib engineering docs:
 [Atom statuses and colours](https://docs.verilib.org/components/processor/atom-statuses-and-colours/)

@@ -5,7 +5,8 @@ Committed time-series outputs from the
 
 One folder per project (`<name>/`), each containing:
 
-- `progress.jsonl` — append-only source of truth, one record per sample.
+- `progress.jsonl` — source of truth, one record per sampled commit (upserted in
+  place on re-runs, so a revised sample replaces its prior row, not appends).
 - `progress.csv` — flattened view regenerated from the JSONL, for plotting.
 - `burnup.svg` / `burnup.png` — the burn-up chart (+ `burnup-inprogress.*` when
   the status curves are rendered).

@@ -263,8 +263,12 @@ def find_fresh_extract(project_dir: Path, pipeline: str, since_ts: float):
     for p in probes.glob(f"{prefix}*.json"):
         try:
             mtime = p.stat().st_mtime
-            if mtime + 1e-6 < since_ts:
-                continue  # stale (from a previous checkout), ignore
+            # Stale = written by a previous checkout, which is always many
+            # seconds/minutes old (a sample re-verifies). Allow a 2s grace so a
+            # coarse-resolution mtime (e.g. 1s on some filesystems) on a file
+            # written just after `since_ts` isn't misread as stale.
+            if mtime < since_ts - 2:
+                continue
             with open(p, encoding="utf-8") as f:
                 env = json.load(f)
         except (OSError, json.JSONDecodeError):
@@ -336,6 +340,12 @@ def _norm_url(u: str | None) -> str | None:
     if not u:
         return None
     return u.strip().rstrip("/").removesuffix(".git").lower()
+
+
+def _last_line(s: str) -> str:
+    """Last non-empty line of ``s`` (for concise one-line warnings), or ''."""
+    lines = [ln.strip() for ln in (s or "").splitlines() if ln.strip()]
+    return lines[-1] if lines else ""
 
 
 def _aeneas_crate_dir(project_dir: Path) -> str:
@@ -454,15 +464,22 @@ def lean_prepare(project_dir: Path):
         # and (re)fetch prebuilt oleans for this toolchain.
         if (lake_dir / "build").exists():
             print(f"  [lean] toolchain -> {tc} (changed) -> lake clean")
-            run(["lake", "clean"], cwd=project_dir, timeout=600)
+            code, out = run(["lake", "clean"], cwd=project_dir, timeout=600)
+            if code != 0:
+                print(f"  [lean][warn] lake clean exit={code}: {_last_line(out)}")
         # Make unadvertised dep revs available before cache-get resolves deps,
         # otherwise resolution dies ("unable to read tree") and oleans aren't
         # fetched (forcing a slow Mathlib source build).
         lean_sync_deps(project_dir)
         # mathlib ships a `cache get` exe that fetches prebuilt oleans matching
-        # the pinned rev + toolchain; harmless no-op elsewhere.
+        # the pinned rev + toolchain; harmless no-op elsewhere. A failure here is
+        # not fatal (lake falls back to a source build) but is worth surfacing,
+        # since it turns a fast sample into a very slow one.
         print(f"  [lean] lake exe cache get ({tc})")
-        run(["lake", "exe", "cache", "get"], cwd=project_dir, timeout=1800)
+        code, out = run(["lake", "exe", "cache", "get"], cwd=project_dir, timeout=1800)
+        if code != 0:
+            print(f"  [lean][warn] lake exe cache get exit={code} "
+                  f"(may force a slow source build): {_last_line(out)}")
     else:
         # Same toolchain: keep dep/Mathlib builds (expensive), but drop the ROOT
         # project build so this commit's regenerated modules rebuild cleanly.
@@ -525,7 +542,12 @@ def load_recorded(jsonl: Path):
 
 def append_record(jsonl: Path, csv_path: Path, record: dict):
     """Upsert a record by commit (last write wins), so a `--retry-failed` re-run
-    supersedes the prior row for that commit rather than duplicating it."""
+    supersedes the prior row for that commit rather than duplicating it.
+
+    This rewrites the whole JSONL (and CSV) per sample -- O(n) in file size. That
+    is deliberate: upsert-by-commit needs the existing rows, and n is small (one
+    row per sampled period, tens over a multi-year history) while each sample
+    costs minutes of real verification, so the rewrite is never the bottleneck."""
     jsonl.parent.mkdir(parents=True, exist_ok=True)
     kept = []
     if jsonl.is_file():
@@ -621,6 +643,13 @@ def main(argv=None):
     pipeline = args.pipeline
     if pipeline == "auto":
         pipeline = detect_pipeline(project_dir)
+    if pipeline not in ("verus", "aeneas"):
+        # `lean` can be requested or auto-detected, but extract is only wired for
+        # verus/aeneas. Fail fast with a clear message instead of a late,
+        # per-sample `extract_failed`. Lean projects are sampled via `aeneas`.
+        print(f"[error] --pipeline {pipeline} is not supported (only verus/aeneas; "
+              f"Lean projects use --pipeline aeneas).", file=sys.stderr)
+        return 2
     print(f"[pipeline] {pipeline}  project={project_dir}")
     if pipeline == "aeneas" and args.skip_verify:
         print("[warn] --skip-verify is ignored for aeneas (probe-aeneas does not forward it)")
@@ -664,7 +693,11 @@ def main(argv=None):
         record = {
             "repo": name, "pipeline": pipeline, "sample_date": sample_date,
             "commit": sha, "commit_date": commit_dt.isoformat(),
-            "tool": "", "tool_version": tool_versions.get(pipeline, ""),
+            # Default the tool from the pipeline so failure records stay
+            # consistent (not blank `tool` with a populated `tool_version`);
+            # a successful extract overwrites this from the envelope.
+            "tool": {"verus": "probe-verus", "aeneas": "probe-aeneas"}.get(pipeline, ""),
+            "tool_version": tool_versions.get(pipeline, ""),
             "status": "", "reason": "", "commit_validated": False,
             "duration_sec": 0, **blank_metrics(),
         }
@@ -707,7 +740,9 @@ def main(argv=None):
         path, env = find_fresh_extract(project_dir, pipeline, ext_start)
         if env is None:
             record["status"] = "timeout" if code is None else "extract_failed"
-            tail = "\n".join((out or "").splitlines()[-6:])
+            # Single-line reason: newlines here become multi-line CSV fields,
+            # which are valid but noisy in diffs and awkward for consumers.
+            tail = " | ".join(ln.strip() for ln in (out or "").splitlines()[-6:] if ln.strip())
             record["reason"] = (f"no fresh unified JSON; exit={code}; {tail}")[:300]
             dbg = Path(tempfile.gettempdir()) / f"vph-extract-{sha[:12]}.log"
             dbg.write_text(out or "", encoding="utf-8", errors="ignore")
