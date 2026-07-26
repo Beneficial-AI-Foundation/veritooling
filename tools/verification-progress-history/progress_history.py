@@ -518,25 +518,31 @@ def run_extract_cmd(pipeline, project_dir, args):
 # --------------------------------------------------------------------------- #
 # Output: JSONL append + CSV regeneration
 # --------------------------------------------------------------------------- #
+def _read_jsonl(path: Path) -> list[dict]:
+    """Parse a JSONL file into records, skipping blank and corrupt lines."""
+    if not path.is_file():
+        return []
+    records = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return records
+
+
 def load_recorded(jsonl: Path):
     """Return (all_shas, ok_shas) already present in the JSONL output."""
     all_shas, ok_shas = set(), set()
-    if not jsonl.is_file():
-        return all_shas, ok_shas
-    with open(jsonl, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            sha = rec.get("commit")
-            if sha:
-                all_shas.add(sha)
-                if rec.get("status") == "ok":
-                    ok_shas.add(sha)
+    for rec in _read_jsonl(jsonl):
+        sha = rec.get("commit")
+        if sha:
+            all_shas.add(sha)
+            if rec.get("status") == "ok":
+                ok_shas.add(sha)
     return all_shas, ok_shas
 
 
@@ -549,18 +555,7 @@ def append_record(jsonl: Path, csv_path: Path, record: dict):
     row per sampled period, tens over a multi-year history) while each sample
     costs minutes of real verification, so the rewrite is never the bottleneck."""
     jsonl.parent.mkdir(parents=True, exist_ok=True)
-    kept = []
-    if jsonl.is_file():
-        for line in jsonl.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                r = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if r.get("commit") != record.get("commit"):
-                kept.append(r)
+    kept = [r for r in _read_jsonl(jsonl) if r.get("commit") != record.get("commit")]
     kept.append(record)
     with open(jsonl, "w", encoding="utf-8") as f:
         for r in kept:
@@ -569,15 +564,7 @@ def append_record(jsonl: Path, csv_path: Path, record: dict):
 
 
 def regenerate_csv(jsonl: Path, csv_path: Path):
-    rows = []
-    with open(jsonl, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                try:
-                    rows.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
+    rows = _read_jsonl(jsonl)
     rows.sort(key=lambda r: (r.get("commit_date") or "", r.get("sample_date") or ""))
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=RECORD_FIELDS, extrasaction="ignore")
