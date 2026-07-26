@@ -78,7 +78,7 @@ Use `--dry-run` first to see exactly which commits will be sampled.
 ## Run guide (active targets)
 
 Both are expensive; run `--dry-run` first, then drop it to execute. Output lands
-in `../../data/<name>/progress.jsonl` (+ `.csv`) by default, one folder per repo.
+in `data/<name>/progress.jsonl` (+ `.csv`) by default, one folder per repo.
 
 ### dalek-verus (Verus)
 
@@ -157,8 +157,8 @@ toolchain error at that commit) — a visible gap, distinct from a real
 
 ```bash
 # Burn-up: tracked >= (verified + trusted) >= verified  (+ translated for Aeneas)
-python3 plot_progress.py ../../data/dalek-verus/progress.jsonl \
-  -o ../../data/dalek-verus/burnup.svg
+python3 plot_progress.py data/dalek-verus/progress.jsonl \
+  -o data/dalek-verus/burnup.svg
 ```
 
 It reads either `.jsonl` or `.csv`, plots only `ok` samples (gaps are omitted
@@ -178,9 +178,9 @@ they are **distinct states**, not the same "unverified" bucket:
   (never attempted). Watch it fall as specs are added.
 
 ```bash
-python3 plot_progress.py ../../data/SparsePostQuantumRatchet-verify/progress.jsonl \
+python3 plot_progress.py data/SparsePostQuantumRatchet-verify/progress.jsonl \
   --in-progress --unspecified --png \
-  -o ../../data/SparsePostQuantumRatchet-verify/burnup-inprogress.svg
+  -o data/SparsePostQuantumRatchet-verify/burnup-inprogress.svg
 ```
 
 Do **not** read `tracked - verified` as the `sorry` count: it is

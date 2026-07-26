@@ -36,4 +36,5 @@ Standalone CLIs (not GitHub Actions) for local, long-running analysis.
 |------|---------|
 | [`verification-progress-history`](tools/verification-progress-history/) | Reconstruct a project's verification progress over git history (weekly samples of `tracked`/`verified`/`translated`) into a JSONL + CSV burn-up time series. |
 
-Committed time-series outputs live in [`data/`](data/).
+Committed time-series outputs live under the tool, in
+[`tools/verification-progress-history/data/`](tools/verification-progress-history/data/).

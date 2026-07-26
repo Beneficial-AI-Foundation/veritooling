@@ -45,8 +45,8 @@ from pathlib import Path
 
 from colors import count_colors
 
-# Repo root: tools/verification-progress-history/ -> veritooling/
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+# Outputs live next to the tool, one folder per repo: data/<name>/.
+DATA_DIR = Path(__file__).resolve().parent / "data"
 
 # Cross-sample state (e.g. last-installed Verus release for setup-dedup).
 _VERUS_STATE: dict = {}
