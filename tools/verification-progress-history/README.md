@@ -146,9 +146,38 @@ python3 plot_progress.py ../../data/progress-dalek-verus.jsonl \
 
 It reads either `.jsonl` or `.csv`, plots only `ok` samples (gaps are omitted
 and noted in the caption), and auto-adds the `translated` line for Aeneas data.
-`in-progress` is intentionally not drawn (per the doc it is a transient state,
-shown only as the gap between the completion frontier and the ceiling). The
-curves are not guaranteed monotonic (refactors/renames can drop counts).
+The curves are not guaranteed monotonic (refactors/renames can drop counts).
+
+### Status curves (`--in-progress`, `--unspecified`)
+
+By default the gap between the completion frontier and the ceiling is left
+implicit. Two flags add the doc's atom-status counts as their own curves — and
+they are **distinct states**, not the same "unverified" bucket:
+
+- `--in-progress` draws `yellow`: atoms with an **incomplete proof** (`sorry` /
+  `assume`) — the doc's actual "in-progress" status. This is the real WIP proof
+  debt; watch it fall as proofs land.
+- `--unspecified` draws `white`: atoms **tracked but with no spec written yet**
+  (never attempted). Watch it fall as specs are added.
+
+```bash
+python3 plot_progress.py ../../data/progress-SparsePostQuantumRatchet-verify.jsonl \
+  --in-progress --unspecified --png \
+  -o ../../data/progress-SparsePostQuantumRatchet-verify-burnup-inprogress.svg
+```
+
+Do **not** read `tracked - verified` as the `sorry` count: it is
+`white + yellow + red`, so it conflates not-yet-specified functions with
+in-progress proofs. And even `yellow` (per-atom) is not the raw `sorry` token
+count in the Lean sources — one unproven lemma can leave many downstream atoms
+`unverified`. See `colors.py` for the full status model.
+
+### PNG output (`--png`)
+
+`--png` also writes a PNG next to the SVG by shelling out to the first available
+rasterizer (`rsvg-convert`, then `inkscape`, then ImageMagick `convert`); if
+none is on `PATH` it prints a hint and writes the SVG only. `--png-scale`
+(default `2.0`) sets the raster scale for crisp output.
 
 ## Parity check
 

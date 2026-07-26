@@ -8,9 +8,11 @@ the chart is reproducible in-repo and reviewable as text.
 Renders the **burn-up** defined in the VeriLib "Atom statuses and colours" doc,
 section "Progress chart (burn-up over time)": nested cumulative frontiers
 ``tracked ≥ (verified + trusted) ≥ verified`` (plus ``translated`` for Aeneas),
-the completion frontier closing on the ceiling at "done". ``in-progress`` is
-deliberately not drawn — per the doc it is a transient state, visible only as
-the gap between the completion frontier and the ceiling.
+the completion frontier closing on the ceiling at "done". By default the
+frontier gap (white + yellow + red) is left implicit — but ``--in-progress``
+adds the doc's ``in-progress`` atom status (``yellow``: an incomplete proof,
+sorry / assume) as its own curve, and ``--unspecified`` adds ``white`` (tracked
+but no spec written yet). These are two distinct states; the gap conflates them.
 
 Only ``status == ok`` samples are plotted; gaps (verify_error, timeout, …) are
 skipped, matching how the frontier chart is defined.
@@ -33,6 +35,8 @@ COL = {
     "verified_trusted": "#7B64B8",  # purple — completion frontier
     "verified": "#1F8A65",      # green — proved frontier
     "translated": "#2E79B5",    # blue — Aeneas intermediate
+    "in_progress": "#E8833A",   # amber — in-progress (yellow: sorry / assume)
+    "unspecified": "#B08D57",   # tan — tracked but no spec written yet (white)
     "axis": "#999999",
     "grid": "#E4E4E422",
     "text": "#333333",
@@ -85,8 +89,8 @@ class Plot:
         self.title = title
         self.subtitle = subtitle
         self.y_label = y_label
-        self.W, self.H = 900, 460
-        self.ml, self.mr, self.mt, self.mb = 64, 150, 64, 96
+        self.W, self.H = 980, 460
+        self.ml, self.mr, self.mt, self.mb = 64, 210, 64, 96
         self.parts: list[str] = []
 
     @property
@@ -173,7 +177,7 @@ class Plot:
                 f'  {body}\n</svg>\n')
 
 
-def burnup_svg(ok, title, subtitle) -> str:
+def burnup_svg(ok, title, subtitle, show_in_progress=False, show_unspecified=False) -> str:
     cats = [r["sample_date"] for r in ok]
     tracked = [r["tracked"] for r in ok]
     vt = [r["verified_trusted"] for r in ok]
@@ -199,8 +203,55 @@ def burnup_svg(ok, title, subtitle) -> str:
     if has_translated:
         plot.line(translated, COL["translated"])
         legend.insert(2, ("translated (Aeneas)", COL["translated"]))
+    # Optional status curves, drawn from zero. These are the doc's atom-status
+    # counts (colours.py), NOT the frontier gap: the "in-progress" atom status
+    # is specifically `yellow` (an incomplete proof — sorry / assume), and it is
+    # distinct from `white` (tracked but no spec written yet). The gap between
+    # the completion frontier and the ceiling is white + yellow + red, which
+    # would conflate the two — so we plot each status on its own line.
+    if show_in_progress:
+        yellow = [r["yellow"] for r in ok]
+        plot.line(yellow, COL["in_progress"])
+        legend.append(("in-progress (sorry/assume)", COL["in_progress"]))
+    if show_unspecified:
+        white = [r["white"] for r in ok]
+        plot.line(white, COL["unspecified"])
+        legend.append(("unspecified (no spec)", COL["unspecified"]))
     plot.legend(legend)
     return plot.svg()
+
+
+# SVG->PNG converters tried in order (first on PATH wins). The SVG is always the
+# primary output; PNG is an opt-in convenience, so we shell out rather than take
+# a Python dependency, and degrade gracefully when none is installed.
+PNG_CONVERTERS = (
+    ("rsvg-convert", lambda svg, png, s: ["rsvg-convert", "-z", str(s), "-o", str(png), str(svg)]),
+    ("inkscape", lambda svg, png, s: ["inkscape", str(svg), "--export-type=png",
+                                      f"--export-filename={png}", "--export-dpi", str(int(96 * s))]),
+    ("convert", lambda svg, png, s: ["convert", "-density", str(int(96 * s)),
+                                     "-background", "none", str(svg), str(png)]),
+)
+
+
+def svg_to_png(svg_path: Path, png_path: Path, scale: float) -> bool:
+    """Rasterize an SVG to PNG via the first available converter. Returns
+    True on success; prints a hint and returns False if none is on PATH."""
+    import shutil
+    import subprocess
+    for name, build_cmd in PNG_CONVERTERS:
+        if shutil.which(name) is None:
+            continue
+        cmd = build_cmd(svg_path, png_path, scale)
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+        except subprocess.CalledProcessError as e:
+            print(f"{name} failed: {e.stderr.decode(errors='replace').strip()}", file=sys.stderr)
+            return False
+        print(f"wrote {png_path} (via {name})")
+        return True
+    print("no SVG->PNG converter found (install rsvg-convert, inkscape, or "
+          "imagemagick); wrote SVG only", file=sys.stderr)
+    return False
 
 
 def parse_args(argv):
@@ -208,6 +259,19 @@ def parse_args(argv):
     p.add_argument("input", type=Path, help="progress-<name>.jsonl or .csv")
     p.add_argument("-o", "--output", type=Path, help="Output SVG (default: alongside input).")
     p.add_argument("--title", help="Chart title (default: derived from the repo).")
+    p.add_argument(
+        "--in-progress", action="store_true",
+        help="Also draw the in-progress curve: the `yellow` atom count "
+             "(incomplete proof — sorry / assume), per the VeriLib status model.")
+    p.add_argument(
+        "--unspecified", action="store_true",
+        help="Also draw the unspecified curve: the `white` atom count "
+             "(tracked but no spec written yet). Distinct from --in-progress.")
+    p.add_argument("--png", action="store_true",
+                   help="Also write a PNG alongside the SVG (needs rsvg-convert, "
+                        "inkscape, or imagemagick on PATH).")
+    p.add_argument("--png-scale", type=float, default=2.0,
+                   help="PNG raster scale factor (default: 2.0 for crisp output).")
     return p.parse_args(argv)
 
 
@@ -226,10 +290,14 @@ def main(argv=None) -> int:
                 + f" · source: {args.input.name}")
 
     title = args.title or f"{repo} — verification burn-up"
-    svg = burnup_svg(ok, title, subtitle)
+    svg = burnup_svg(ok, title, subtitle,
+                     show_in_progress=args.in_progress,
+                     show_unspecified=args.unspecified)
     out = args.output or args.input.with_name(f"{args.input.stem}-burnup.svg")
     out.write_text(svg)
     print(f"wrote {out}")
+    if args.png:
+        svg_to_png(out, out.with_suffix(".png"), args.png_scale)
     return 0
 
 
