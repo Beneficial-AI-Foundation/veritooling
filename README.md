@@ -27,3 +27,14 @@ them individually.
 | [`specs-delta`](actions/specs-delta/) | Generation | Detect specification-theorem changes. |
 | [`sorry-delta`](actions/sorry-delta/) | Reporting | Diff sorry manifests and format the delta. |
 | [`verification-delta-report`](actions/verification-delta-report/) | Reporting | Combine deltas into one PR comment. |
+
+## Tools
+
+Standalone CLIs (not GitHub Actions) for local, long-running analysis.
+
+| Tool | Purpose |
+|------|---------|
+| [`verification-progress-history`](tools/verification-progress-history/) | Reconstruct a project's verification progress over git history (weekly samples of `tracked`/`verified`/`translated`) into a JSONL + CSV burn-up time series. |
+
+Committed time-series outputs live under the tool, in
+[`tools/verification-progress-history/data/`](tools/verification-progress-history/data/).

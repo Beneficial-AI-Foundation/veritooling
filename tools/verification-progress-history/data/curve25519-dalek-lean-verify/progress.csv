@@ -1,0 +1,11 @@
+repo,pipeline,sample_date,commit,commit_date,tool,tool_version,status,reason,commit_validated,duration_sec,grey,white,red,yellow,light_green,dark_green,purple,exec_total,dot_red,dot_yellow,dot_green,art_total,tracked,verified,verified_trusted,translated
+curve25519-dalek-lean-verify,aeneas,2026-03-27,f0ffefa0e482658cdda47338ca2ba1b5de9e21b7,2026-03-27T15:09:26+00:00,probe-aeneas,0.16.0,ok,,True,568.0,166,75,0,52,24,117,16,450,0,13,1211,1224,284,141,157,209
+curve25519-dalek-lean-verify,aeneas,2026-04-24,99caa98c6f8ad5e94f3730795c319d8904a8a532,2026-04-23T05:13:27+00:00,probe-aeneas,0.16.0,ok,,True,760.4,166,75,0,46,28,127,8,450,0,6,1293,1299,284,155,163,209
+curve25519-dalek-lean-verify,aeneas,2026-05-22,5e9bc042c775912e92e7df42fa1abba4d886b46c,2026-05-21T13:08:09+00:00,,probe-aeneas 0.16.0,extract_failed,"no fresh unified JSON; exit=1; 
+Stale .olean files: probe-lean and the target project both use Lean 4.30.0-rc2,
+but the build artifacts were compiled by a different Lean version.
+Fix: run `lake clean` in the target project, then re-run extract.
+Importing 216 modules...
+Error: probe-lean extract exit",False,538.6,,,,,,,,,,,,,,,,
+curve25519-dalek-lean-verify,aeneas,2026-06-12,b9fae801a9e47ac522ea6455a28b78e1d1e1fda5,2026-06-10T12:54:02+00:00,probe-aeneas,0.16.0,ok,,True,516.9,166,97,0,20,30,136,1,450,0,3,1347,1350,284,166,167,187
+curve25519-dalek-lean-verify,aeneas,2026-07-17,a5703d741ec7eca6bf218ee573c43f928c758237,2026-07-11T12:11:06+00:00,probe-aeneas,0.16.0,ok,,True,515.3,180,83,0,20,30,136,1,450,0,3,1347,1350,270,166,167,187
