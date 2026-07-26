@@ -586,7 +586,7 @@ def parse_args(argv):
     p.add_argument("--until", help="Only sample commits until this date/rev (git --until).")
     p.add_argument("--branch", help="Ref to enumerate history from (default: origin/HEAD).")
     p.add_argument("--work-clone", type=Path, help="Persistent clone dir (default: temp, reused).")
-    p.add_argument("--output", type=Path, help="JSONL output path (default: data/progress-<name>.jsonl).")
+    p.add_argument("--output", type=Path, help="JSONL output path (default: data/<name>/progress.jsonl).")
     p.add_argument("--csv", type=Path, help="CSV output path (default: alongside JSONL).")
     p.add_argument("--sample-timeout", type=int, default=7200, help="Per-sample extract timeout (s).")
     p.add_argument("--setup-timeout", type=int, default=3600, help="probe-verus setup timeout (s).")
@@ -610,8 +610,9 @@ def main(argv=None):
             args.verus_args = ["--smt-option", f"smt.random_seed={args.smt_seed}"]
 
     name = repo_name(args.repo)
-    jsonl = (args.output or DATA_DIR / f"progress-{name}.jsonl").resolve()
+    jsonl = (args.output or DATA_DIR / name / "progress.jsonl").resolve()
     csv_path = (args.csv or jsonl.with_suffix(".csv")).resolve()
+    jsonl.parent.mkdir(parents=True, exist_ok=True)
     work_clone = args.work_clone or Path(tempfile.gettempdir()) / "verification-progress-history" / name
 
     work_clone = ensure_work_clone(args.repo, work_clone)

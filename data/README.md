@@ -3,10 +3,12 @@
 Committed time-series outputs from the
 [`verification-progress-history`](../tools/verification-progress-history/) tool.
 
-Each run produces a pair of files per project:
+One folder per project (`<name>/`), each containing:
 
-- `progress-<name>.jsonl` — append-only source of truth, one record per sample.
-- `progress-<name>.csv` — flattened view regenerated from the JSONL, for plotting.
+- `progress.jsonl` — append-only source of truth, one record per sample.
+- `progress.csv` — flattened view regenerated from the JSONL, for plotting.
+- `burnup.svg` / `burnup.png` — the burn-up chart (+ `burnup-inprogress.*` when
+  the status curves are rendered).
 
 These are generated deliberately (each backfill re-runs verification per weekly
 sample and is expensive), then committed here so the burn-up history is shared

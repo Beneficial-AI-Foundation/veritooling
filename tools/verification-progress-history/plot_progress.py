@@ -293,7 +293,10 @@ def main(argv=None) -> int:
     svg = burnup_svg(ok, title, subtitle,
                      show_in_progress=args.in_progress,
                      show_unspecified=args.unspecified)
-    out = args.output or args.input.with_name(f"{args.input.stem}-burnup.svg")
+    # Default alongside the input: data/<name>/progress.jsonl -> .../burnup.svg.
+    # (Pass -o for variants like burnup-inprogress.svg so they don't collide.)
+    default_stem = "burnup" if args.input.stem == "progress" else f"{args.input.stem}-burnup"
+    out = args.output or args.input.with_name(f"{default_stem}.svg")
     out.write_text(svg)
     print(f"wrote {out}")
     if args.png:
