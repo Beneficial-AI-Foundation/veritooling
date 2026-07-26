@@ -1,17 +1,13 @@
 # data
 
-Committed time-series outputs from the
-[`verification-progress-history`](../tools/verification-progress-history/) tool.
+Committed outputs from [`verification-progress-history`](../), one folder per
+project (`<name>/`):
 
-One folder per project (`<name>/`), each containing:
+- `progress.jsonl`: source of truth, one record per sampled commit (upserted by
+  commit on re-runs, not appended).
+- `progress.csv`: flat view regenerated from the JSONL, for plotting.
+- `burnup.svg` / `.png` (and `burnup-inprogress.*`): rendered charts.
 
-- `progress.jsonl` — source of truth, one record per sampled commit (upserted in
-  place on re-runs, so a revised sample replaces its prior row, not appends).
-- `progress.csv` — flattened view regenerated from the JSONL, for plotting.
-- `burnup.svg` / `burnup.png` — the burn-up chart (+ `burnup-inprogress.*` when
-  the status curves are rendered).
-
-These are generated deliberately (each backfill re-runs verification per weekly
-sample and is expensive), then committed here so the burn-up history is shared
-in one place next to the tool. See the tool README for the record schema and the
-per-project run commands.
+Each backfill re-runs verification per sample and is expensive, so the outputs
+are committed here rather than regenerated on demand. See [`../README.md`](../README.md)
+for the record schema and run commands.
