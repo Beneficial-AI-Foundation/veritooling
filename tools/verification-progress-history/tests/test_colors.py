@@ -3,12 +3,12 @@
 import colors
 
 
-def _exec(status, disabled=False, translated=False):
+def _exec(status, untracked=False, translated=False):
     return {
         "code-path": "src/x.rs",
         "language": "rust",
         "kind": "exec",
-        "is-disabled": disabled,
+        "untracked": untracked,
         "verification-status": status,
         "translation-name": "Foo.bar" if translated else None,
     }
@@ -30,7 +30,7 @@ def test_bar_and_dot_counts():
             _exec("unverified"),  # yellow == in-progress
             _exec(None),  # white == unspecified
             _exec("trusted"),  # purple
-            _exec("verified", disabled=True),  # grey (out of scope)
+            _exec("verified", untracked=True),  # grey (out of scope)
             _artifact("verified"),  # dot_green
             _artifact("unverified"),  # dot_yellow
             {

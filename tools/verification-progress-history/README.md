@@ -9,7 +9,7 @@ Standalone Python 3.10+ CLI, stdlib only at runtime. It is not a GitHub Action:
 a multi-hour history walk with per-commit toolchain installs is a poor fit for CI.
 
 Metric definitions live in the VeriLib docs,
-[Atom statuses and colours](https://docs.verilib.org/components/processor/atom-statuses-and-colours/).
+[Atom statuses and colours](https://beneficial-ai-foundation.github.io/VeriLib-Docs/components/processor/atom-statuses-and-colours/).
 Reproduce the numbers from any extract JSON with `colors.py <extract.json> --table`.
 
 ## Files
