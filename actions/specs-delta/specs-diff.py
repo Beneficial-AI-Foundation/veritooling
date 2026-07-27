@@ -11,6 +11,7 @@ Usage:
 
 Output: a JSON file with the detected changes and a markdown section.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -22,6 +23,12 @@ from pathlib import Path
 
 DEFAULT_OUTPUT = "specs-delta.json"
 DEFAULT_MARKDOWN = ".specs-delta-section.md"
+
+# probe-lean Schema 2.0 verification-status vocabulary (see actions/sorry-audit-probe
+# and tools/verification-progress-history/colors.py). A transition between these
+# two groups is what "newly verified" / "newly broken" mean.
+PROVED_STATUSES = {"verified", "transitively-verified", "trusted"}
+BROKEN_STATUSES = {"unverified", "failed"}
 
 
 def git_diff_mode(specs_paths: list[str], base_ref: str) -> list[dict]:
@@ -40,14 +47,20 @@ def git_diff_mode(specs_paths: list[str], base_ref: str) -> list[dict]:
     for line in result.stdout.strip().splitlines():
         if not line:
             continue
-        parts = line.split("\t", 1)
+        # Rename/copy rows carry three tab-separated fields
+        # (status, old-path, new-path); everything else carries two. Report the
+        # last field: the new path for renames/copies, or the only path for
+        # adds/modifies/deletes.
+        parts = line.split("\t")
         if len(parts) < 2:
             continue
         raw_status = parts[0].strip()
-        filepath = parts[1].strip()
+        filepath = parts[-1].strip()
 
         if raw_status.startswith("R"):
             status = "renamed"
+        elif raw_status.startswith("C"):
+            status = "copied"
         else:
             status = status_map.get(raw_status, raw_status)
 
@@ -90,21 +103,25 @@ def probe_mode(base_json_path: Path, head_json_path: Path) -> list[dict]:
 
     for key in sorted(head_keys - base_keys):
         atom = head_specs[key]
-        changes.append({
-            "declaration": atom["display-name"],
-            "module": atom["module"],
-            "status": "added",
-            "verification-status": atom["verification-status"],
-        })
+        changes.append(
+            {
+                "declaration": atom["display-name"],
+                "module": atom["module"],
+                "status": "added",
+                "verification-status": atom["verification-status"],
+            }
+        )
 
     for key in sorted(base_keys - head_keys):
         atom = base_specs[key]
-        changes.append({
-            "declaration": atom["display-name"],
-            "module": atom["module"],
-            "status": "removed",
-            "verification-status": atom["verification-status"],
-        })
+        changes.append(
+            {
+                "declaration": atom["display-name"],
+                "module": atom["module"],
+                "status": "removed",
+                "verification-status": atom["verification-status"],
+            }
+        )
 
     for key in sorted(base_keys & head_keys):
         base_atom = base_specs[key]
@@ -113,20 +130,22 @@ def probe_mode(base_json_path: Path, head_json_path: Path) -> list[dict]:
         head_vs = head_atom["verification-status"]
 
         if base_vs != head_vs:
-            if base_vs in ("not_verified", "has_sorry") and head_vs == "verified":
+            if base_vs in BROKEN_STATUSES and head_vs in PROVED_STATUSES:
                 change_status = "newly_verified"
-            elif base_vs == "verified" and head_vs in ("not_verified", "has_sorry"):
+            elif base_vs in PROVED_STATUSES and head_vs in BROKEN_STATUSES:
                 change_status = "newly_broken"
             else:
                 change_status = "status_changed"
 
-            changes.append({
-                "declaration": head_atom["display-name"],
-                "module": head_atom["module"],
-                "status": change_status,
-                "verification-status": head_vs,
-                "previous-status": base_vs,
-            })
+            changes.append(
+                {
+                    "declaration": head_atom["display-name"],
+                    "module": head_atom["module"],
+                    "status": change_status,
+                    "verification-status": head_vs,
+                    "previous-status": base_vs,
+                }
+            )
 
     return changes
 
@@ -167,12 +186,16 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="mode", required=True)
 
     git_parser = subparsers.add_parser("git-diff", help="File-level detection via git diff")
-    git_parser.add_argument("--specs-paths", required=True, help="Comma-separated paths to specs directories")
+    git_parser.add_argument(
+        "--specs-paths", required=True, help="Comma-separated paths to specs directories"
+    )
     git_parser.add_argument("--base-ref", required=True, help="Base git ref for comparison")
     git_parser.add_argument("--output", type=Path, default=Path(DEFAULT_OUTPUT))
     git_parser.add_argument("--markdown-output", type=Path, default=Path(DEFAULT_MARKDOWN))
 
-    probe_parser = subparsers.add_parser("probe", help="Declaration-level detection via probe-lean JSON")
+    probe_parser = subparsers.add_parser(
+        "probe", help="Declaration-level detection via probe-lean JSON"
+    )
     probe_parser.add_argument("--base-json", type=Path, required=True, help="Base probe-lean JSON")
     probe_parser.add_argument("--head-json", type=Path, required=True, help="Head probe-lean JSON")
     probe_parser.add_argument("--output", type=Path, default=Path(DEFAULT_OUTPUT))

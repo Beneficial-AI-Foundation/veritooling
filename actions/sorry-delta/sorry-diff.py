@@ -22,6 +22,7 @@ Exit codes:
     1  new sorries detected and --fail-on-new is set
     2  usage / file error
 """
+
 from __future__ import annotations
 
 import argparse
@@ -36,18 +37,21 @@ MAX_ROWS = 50
 DEFAULT_OUTPUT = ".sorry-delta-section.md"
 
 
-def read_manifest(path: Path) -> tuple[dict[str, str], int | None]:
+def read_manifest(path: Path) -> tuple[dict[tuple[str, str], str], int | None]:
     """Parse a versioned sorry manifest.
 
-    Returns (declarations dict, version).  The dict maps declaration name
-    (column 2) to the full line.  Version is None when the file is missing.
+    Returns (declarations dict, version).  The dict maps (module, declaration)
+    -- columns 1 and 2 -- to the full line.  Keying on the pair, not the
+    declaration name alone, keeps same-named declarations in different modules
+    distinct (otherwise one would silently overwrite the other and be dropped
+    from the delta).  Version is None when the file is missing.
     """
     if not path.exists():
         return {}, None
 
     lines = path.read_text().splitlines()
     version: int | None = None
-    result: dict[str, str] = {}
+    result: dict[tuple[str, str], str] = {}
 
     for line in lines:
         stripped = line.strip()
@@ -67,7 +71,7 @@ def read_manifest(path: Path) -> tuple[dict[str, str], int | None]:
             continue
         parts = stripped.split()
         if len(parts) >= 2:
-            result[parts[1]] = stripped
+            result[(parts[0], parts[1])] = stripped
 
     return result, version
 
@@ -140,7 +144,7 @@ def filter_lines(lines: list[str], prefixes: list[str]) -> list[str]:
     """Keep only manifest lines whose module column matches a prefix."""
     if not prefixes:
         return lines
-    return [l for l in lines if module_matches(parse_line(l)[0], prefixes)]
+    return [ln for ln in lines if module_matches(parse_line(ln)[0], prefixes)]
 
 
 def build_markdown(
@@ -153,8 +157,7 @@ def build_markdown(
 
     if not has_baseline:
         sections.append(
-            f"No baseline available for comparison. "
-            f"Current sorry-tainted declarations: **{total}**"
+            f"No baseline available for comparison. Current sorry-tainted declarations: **{total}**"
         )
         return "\n".join(sections)
 
@@ -162,9 +165,7 @@ def build_markdown(
     removed_count = len(removed_lines)
 
     if new_count == 0 and removed_count == 0:
-        sections.append(
-            f"No change in sorry-tainted declarations. ({total} total)"
-        )
+        sections.append(f"No change in sorry-tainted declarations. ({total} total)")
         return "\n".join(sections)
 
     parts: list[str] = []
@@ -187,15 +188,11 @@ def build_markdown(
         remaining = new_count - MAX_ROWS
         if remaining > 0:
             sections.append("")
-            sections.append(
-                f"... and {remaining} more (see full manifest in job log)"
-            )
+            sections.append(f"... and {remaining} more (see full manifest in job log)")
 
     if removed_count > 0:
         sections.append("")
-        sections.append(
-            f"<details><summary>{removed_count} removed</summary>\n"
-        )
+        sections.append(f"<details><summary>{removed_count} removed</summary>\n")
         for entry in removed_lines[:MAX_ROWS]:
             mod, decl, kind = parse_line(entry)
             sections.append(f"- ~`{decl}`~ ({mod}, {kind})")
@@ -213,19 +210,23 @@ def main() -> None:
     )
     parser.add_argument("base_manifest", type=Path, help="Base manifest path (may not exist)")
     parser.add_argument("head_manifest", type=Path, help="Head manifest path")
-    parser.add_argument("--output", type=Path, default=Path(DEFAULT_OUTPUT), help="Output markdown path")
+    parser.add_argument(
+        "--output", type=Path, default=Path(DEFAULT_OUTPUT), help="Output markdown path"
+    )
     parser.add_argument("--fail-on-new", action="store_true", help="Exit 1 if new sorries found")
     parser.add_argument("--summary", action="store_true", help="Also write to GITHUB_STEP_SUMMARY")
     parser.add_argument(
-        "--include-prefix", default="",
+        "--include-prefix",
+        default="",
         help="Comma/whitespace-separated module prefixes to report on "
-             "(e.g. hand-written code); others are ignored",
+        "(e.g. hand-written code); others are ignored",
     )
     parser.add_argument(
-        "--annotate", action="store_true",
+        "--annotate",
+        action="store_true",
         help="Emit a GitHub ::warning annotation per new sorry. Only meaningful "
-             "in a pull_request-triggered job, where file/line annotations "
-             "render inline on the PR diff.",
+        "in a pull_request-triggered job, where file/line annotations "
+        "render inline on the PR diff.",
     )
     args = parser.parse_args()
 

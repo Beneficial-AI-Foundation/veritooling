@@ -6,6 +6,7 @@ Usage:
     python3 combine-sections.py [--sorry-delta PATH] [--specs-delta PATH]
                                 [--output PATH]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,15 +21,21 @@ def main() -> None:
         description="Combine verification delta sections into one PR comment."
     )
     parser.add_argument(
-        "--sorry-delta", type=Path, default=Path(".sorry-delta-section.md"),
+        "--sorry-delta",
+        type=Path,
+        default=Path(".sorry-delta-section.md"),
         help="Sorry delta markdown section",
     )
     parser.add_argument(
-        "--specs-delta", type=Path, default=None,
+        "--specs-delta",
+        type=Path,
+        default=None,
         help="Specs delta markdown section (omit to skip)",
     )
     parser.add_argument(
-        "--output", type=Path, default=Path(DEFAULT_OUTPUT),
+        "--output",
+        type=Path,
+        default=Path(DEFAULT_OUTPUT),
         help="Combined output file",
     )
     args = parser.parse_args()

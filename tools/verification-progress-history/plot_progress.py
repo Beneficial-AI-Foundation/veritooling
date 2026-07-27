@@ -26,6 +26,9 @@ from __future__ import annotations
 import argparse
 import csv as csvmod
 import json
+import math
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -75,11 +78,7 @@ def nice_ceiling(v: int) -> int:
         return 10
     for step in (10, 20, 25, 50, 100, 200, 250, 500, 1000):
         if v <= step * 5:
-            import math
-
             return int(math.ceil(v / step) * step)
-    import math
-
     return int(math.ceil(v / 1000) * 1000)
 
 
@@ -284,9 +283,6 @@ PNG_CONVERTERS = (
 def svg_to_png(svg_path: Path, png_path: Path, scale: float) -> bool:
     """Rasterize an SVG to PNG via the first available converter. Returns
     True on success; prints a hint and returns False if none is on PATH."""
-    import shutil
-    import subprocess
-
     for name, build_cmd in PNG_CONVERTERS:
         if shutil.which(name) is None:
             continue
