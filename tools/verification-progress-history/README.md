@@ -94,6 +94,28 @@ distinct states, so do not read `tracked - verified` as the sorry count. `--png`
 also writes a PNG via rsvg-convert, inkscape, or imagemagick, and `--png-scale`
 sets the raster scale (default 2.0).
 
+## Scheduling weekly updates (cron)
+
+`--resume` makes the tool incremental and safe to run unattended: it fetches new
+commits into the reused `--work-clone`, samples only commits not already
+recorded (upserting by SHA), and leaves the file untouched on a week with no new
+commit. `--fail-on-error` exits non-zero if any sample processed this run is not
+`ok` (skipped/already-recorded samples don't count), so a wrapper's `set -e`
+surfaces a broken week to cron mail or your log monitor.
+
+`cron/` has a ready-to-edit setup:
+
+- `cron/update-progress.sh` — copy per project, edit the CONFIG block,
+  `chmod +x`. It runs the sample (`--resume --fail-on-error`), regenerates the
+  chart, and commits the data if it changed. Run it once by hand first.
+- `cron/example.crontab` — a Wednesday 07:00 schedule, so the newest sample is
+  fresh for a Thursday review (the default `--anchor-day` is `wednesday`).
+
+The wrapper handles the cron gotchas: a minimal `PATH`/`HOME` (the probe and
+toolchain must resolve for the cron user), overlap (`flock`), and publishing the
+result — the tool only writes files, so the wrapper does the `git add/commit/push`
+(to a bot data branch by default; adapt that step to your workflow).
+
 ## Output
 
 One JSON object per sampled commit, upserted by commit so `--retry-failed`
