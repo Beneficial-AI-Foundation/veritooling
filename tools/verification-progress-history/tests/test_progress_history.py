@@ -56,13 +56,18 @@ def test_aeneas_crate_dir(tmp_path):
     assert ph._aeneas_crate_dir(tmp_path / "nope") == "."  # no config -> repo root
 
 
-def test_anchor_friday_lands_on_or_after():
+def test_default_anchor_day_is_wednesday():
+    # Weekly meeting is Thursday; the grid snaps to the prior Wednesday.
+    assert ph.parse_args(["some/repo"]).anchor_day == "wednesday"
+
+
+def test_anchor_weekday_lands_on_or_after():
     friday = ph.WEEKDAYS.index("friday")
     wed = datetime(2026, 1, 7, 12, tzinfo=timezone.utc)  # Wednesday
-    a = ph.anchor_friday(wed, friday)
+    a = ph.anchor_weekday(wed, friday)
     assert a.weekday() == 4 and a.date().isoformat() == "2026-01-09"
     fri = datetime(2026, 1, 9, 1, tzinfo=timezone.utc)  # already Friday
-    assert ph.anchor_friday(fri, friday).date().isoformat() == "2026-01-09"
+    assert ph.anchor_weekday(fri, friday).date().isoformat() == "2026-01-09"
 
 
 def test_bucket_samples_one_per_period_plus_head():
