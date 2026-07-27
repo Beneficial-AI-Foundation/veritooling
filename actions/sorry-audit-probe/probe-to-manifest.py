@@ -28,6 +28,7 @@ The optional 4th column carries the declaration's source location so downstream
 steps can emit GitHub annotations (`::warning file=...,line=...::`).  Consumers
 that only need module/name/kind ignore it.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -52,11 +53,11 @@ DEFAULT_OUTPUT = "sorry-manifest.txt"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Convert probe-lean JSON to sorry-manifest v1."
-    )
+    parser = argparse.ArgumentParser(description="Convert probe-lean JSON to sorry-manifest v1.")
     parser.add_argument("probe_json", type=Path, help="Path to probe-lean extract JSON")
-    parser.add_argument("--output", type=Path, default=Path(DEFAULT_OUTPUT), help="Output manifest path")
+    parser.add_argument(
+        "--output", type=Path, default=Path(DEFAULT_OUTPUT), help="Output manifest path"
+    )
     args = parser.parse_args()
 
     if not args.probe_json.exists():
@@ -79,7 +80,7 @@ def main() -> None:
         module = atom.get("code-module", "(unknown)")
         name = atom.get("display-name", atom_key)
         if name.startswith("probe:"):
-            name = name[len("probe:"):]
+            name = name[len("probe:") :]
 
         path = atom.get("code-path", "")
         code_text = atom.get("code-text") or {}

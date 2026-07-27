@@ -62,4 +62,4 @@ ModuleName another.declaration transitive
 - First line: `# sorry-manifest v1` (version header, required)
 - Each subsequent line: `<Module> <Declaration> <direct|transitive>`
 - Sorted lexicographically
-- Declaration name (column 2) is the identity key
+- Module plus declaration name (columns 1 and 2) is the identity key

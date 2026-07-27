@@ -41,7 +41,7 @@ import sys
 from pathlib import Path
 
 
-def detect_pipeline(schema: str) -> str:
+def pipeline_from_schema(schema: str) -> str:
     """Map the envelope ``schema`` field to a pipeline name."""
     if schema.startswith("probe-aeneas"):
         return "aeneas"
@@ -69,7 +69,7 @@ def count_colors(envelope: dict) -> dict:
     verified_trusted / translated), plus any consistency ``warnings``.
     """
     schema = envelope.get("schema", "") or ""
-    pipeline = detect_pipeline(schema)
+    pipeline = pipeline_from_schema(schema)
 
     atoms = [
         a

@@ -1,4 +1,4 @@
-# Lint, format-check, and test the standalone Python tools under tools/.
+# Lint, format-check, and test the standalone Python under tools/ and actions/.
 # Runtime is stdlib-only; ruff and pytest are CI-only dev tools.
 
 name: Python Tools
@@ -6,9 +6,17 @@ name: Python Tools
 on:
   push:
     branches: [main]
-    paths: ["tools/**", "pyproject.toml", ".github/workflows/python-tools.yml"]
+    paths:
+      - "tools/**"
+      - "actions/**"
+      - "pyproject.toml"
+      - ".github/workflows/python-tools.yml"
   pull_request:
-    paths: ["tools/**", "pyproject.toml", ".github/workflows/python-tools.yml"]
+    paths:
+      - "tools/**"
+      - "actions/**"
+      - "pyproject.toml"
+      - ".github/workflows/python-tools.yml"
 
 jobs:
   check:
@@ -25,10 +33,10 @@ jobs:
         run: pip install ruff pytest
 
       - name: Format check
-        run: ruff format --check tools/
+        run: ruff format --check tools/ actions/
 
       - name: Lint
-        run: ruff check tools/
+        run: ruff check tools/ actions/
 
       - name: Test
-        run: pytest tools/verification-progress-history/tests -q
+        run: pytest -q
