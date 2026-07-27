@@ -716,6 +716,12 @@ def parse_args(argv):
         action="store_true",
         help="List the samples that would be processed, then exit.",
     )
+    p.add_argument(
+        "--fail-on-error",
+        action="store_true",
+        help="Exit non-zero if any sample processed this run is not `ok` "
+        "(for cron/monitoring). Samples skipped by --resume don't count.",
+    )
     return p.parse_args(argv)
 
 
@@ -793,6 +799,7 @@ def main(argv=None):
             tool_versions[pl] = out.strip().splitlines()[0] if out else ""
 
     processed = 0
+    failed = 0  # non-ok samples actually run this invocation (for --fail-on-error)
     for idx, (sample_date, sha, commit_dt) in enumerate(samples, 1):
         tag = f"[{idx}/{len(samples)}] {sample_date} {sha[:12]}"
         # Explicit --commit always (re)runs; resume-skip only applies to the
@@ -838,6 +845,7 @@ def main(argv=None):
             record["reason"] = str(e).splitlines()[-1][:300]
             record["duration_sec"] = round(time.time() - started, 1)
             append_record(jsonl, csv_path, record)
+            failed += 1
             print(f"     {record['status']}: {record['reason']}")
             continue
 
@@ -848,6 +856,7 @@ def main(argv=None):
                 record["reason"] = setup_reason[:300]
                 record["duration_sec"] = round(time.time() - started, 1)
                 append_record(jsonl, csv_path, record)
+                failed += 1
                 print(f"     {record['status']}: {record['reason']}")
                 continue
         elif pipeline == "aeneas":
@@ -869,6 +878,7 @@ def main(argv=None):
             dbg = Path(tempfile.gettempdir()) / f"vph-extract-{sha[:12]}.log"
             dbg.write_text(out or "", encoding="utf-8", errors="ignore")
             append_record(jsonl, csv_path, record)
+            failed += 1
             print(f"     {record['status']}: exit={code} (full output: {dbg})")
             continue
 
@@ -882,6 +892,7 @@ def main(argv=None):
             record["status"] = "commit_mismatch"
             record["reason"] = f"extract source.commit {rec_commit} != sample {sha[:12]}"
             append_record(jsonl, csv_path, record)
+            failed += 1
             print(f"     {record['status']}: {record['reason']}")
             continue
 
@@ -906,6 +917,7 @@ def main(argv=None):
             record["reason"] = (
                 f"verify produced no statuses (exit={code}); likely build/toolchain error"
             )
+            failed += 1
         append_record(jsonl, csv_path, record)
         print(
             f"     {record['status']}: tracked={metrics['tracked']} verified={metrics['verified']} "
@@ -915,6 +927,9 @@ def main(argv=None):
 
     print(f"[done] processed {processed} new sample(s); output: {jsonl}")
     print(f"       CSV: {csv_path}")
+    if args.fail_on_error and failed:
+        print(f"[fail-on-error] {failed} sample(s) not ok this run", file=sys.stderr)
+        return 1
     return 0
 
 

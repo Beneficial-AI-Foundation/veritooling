@@ -61,6 +61,12 @@ def test_default_anchor_day_is_wednesday():
     assert ph.parse_args(["some/repo"]).anchor_day == "wednesday"
 
 
+def test_fail_on_error_defaults_off():
+    # Off by default (unattended cron opts in); the flag turns it on.
+    assert ph.parse_args(["some/repo"]).fail_on_error is False
+    assert ph.parse_args(["some/repo", "--fail-on-error"]).fail_on_error is True
+
+
 def test_anchor_weekday_lands_on_or_after():
     friday = ph.WEEKDAYS.index("friday")
     wed = datetime(2026, 1, 7, 12, tzinfo=timezone.utc)  # Wednesday

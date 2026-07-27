@@ -1,0 +1,14 @@
+# Weekly verification-progress refresh.
+#
+# Wednesday 07:00 UTC (dow 3), so the newest sample is fresh for a Thursday
+# review; the tool's default --anchor-day is `wednesday`, so the sample-date
+# grid lands on the same weekday.
+#
+# One line per project, each pointing at its own edited copy of
+# update-progress.sh. Adjust the user, paths, and schedule to taste. Redirect
+# output to a log the wrapper's non-zero exit (via --fail-on-error) can be
+# monitored from.
+#
+#  ┌ min  ┌ hour  ┌ day-of-month  ┌ month  ┌ day-of-week (3 = Wed)
+#  │      │       │               │        │
+   0      7       *               *        3   vph  /opt/vph/update-progress-dalek-verus.sh >> /var/log/vph/dalek-verus.log 2>&1
