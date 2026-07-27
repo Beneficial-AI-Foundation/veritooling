@@ -9,8 +9,8 @@ the ``schema`` field.
 Two channels (see the doc for the full definition):
 
   Colour BAR  -- Rust ``exec`` atoms (language "rust", kind "exec").
-    Pure function of (is-disabled, verification-status):
-      grey        is-disabled: true          (out of verification scope)
+    Pure function of (untracked, verification-status):
+      grey        untracked: true            (out of verification scope)
       white       no verification-status     (tracked, no spec yet)
       red         "failed"
       yellow      "unverified"               (sorry / assume)
@@ -84,16 +84,16 @@ def count_colors(envelope: dict) -> dict:
     # --- Colour BAR: Rust exec atoms -----------------------------------------
     execs = [
         {
-            "disabled": a.get("is-disabled", False) is True,
+            "untracked": a.get("untracked", False) is True,
             "status": a.get("verification-status"),
             "translated": a.get("translation-name") is not None,
         }
         for a in atoms
         if a.get("language") == "rust" and a.get("kind") == "exec"
     ]
-    active = [e for e in execs if not e["disabled"]]
+    active = [e for e in execs if not e["untracked"]]
 
-    grey = sum(1 for e in execs if e["disabled"])
+    grey = sum(1 for e in execs if e["untracked"])
     white = sum(1 for e in active if e["status"] is None)
     red = sum(1 for e in active if e["status"] == "failed")
     yellow = sum(1 for e in active if e["status"] == "unverified")
