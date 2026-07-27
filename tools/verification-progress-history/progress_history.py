@@ -238,8 +238,8 @@ def list_commits(work_clone: Path, ref: str, since: str | None, until: str | Non
     return commits
 
 
-def anchor_friday(dt: datetime, anchor_idx: int) -> datetime:
-    """The anchor-day (default Friday) on or after dt's date, at end of day UTC."""
+def anchor_weekday(dt: datetime, anchor_idx: int) -> datetime:
+    """The anchor-day (default Wednesday) on or after dt's date, at end of day UTC."""
     days_ahead = (anchor_idx - dt.weekday()) % 7
     d = (dt + timedelta(days=days_ahead)).date()
     return datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=timezone.utc)
@@ -255,15 +255,15 @@ def bucket_samples(commits, anchor_idx: int, cadence_weeks: int):
     """
     periods: dict[int, tuple[datetime, str, datetime]] = {}
     for sha, dt in commits:
-        friday = anchor_friday(dt, anchor_idx)
-        week_index = friday.toordinal() // 7
+        anchor = anchor_weekday(dt, anchor_idx)
+        week_index = anchor.toordinal() // 7
         period = week_index // max(1, cadence_weeks)
         prev = periods.get(period)
-        # keep the latest commit in the period; label with that commit's Friday
+        # keep the latest commit in the period; label with that commit's anchor-day
         if prev is None or dt >= prev[2]:
-            periods[period] = (friday, sha, dt)
+            periods[period] = (anchor, sha, dt)
     samples = [periods[p] for p in sorted(periods)]
-    result = [(f.date().isoformat(), sha, dt) for (f, sha, dt) in samples]
+    result = [(a.date().isoformat(), sha, dt) for (a, sha, dt) in samples]
 
     if commits:
         head_sha, head_dt = commits[-1]
@@ -294,7 +294,7 @@ def resolve_commits(work_clone: Path, refs: list[str], anchor_idx: int):
         dt = datetime.fromisoformat(iso).astimezone(timezone.utc)
         resolved.append((sha, dt))
     resolved.sort(key=lambda c: c[1])
-    return [(anchor_friday(dt, anchor_idx).date().isoformat(), sha, dt) for sha, dt in resolved]
+    return [(anchor_weekday(dt, anchor_idx).date().isoformat(), sha, dt) for sha, dt in resolved]
 
 
 # --------------------------------------------------------------------------- #
@@ -653,7 +653,12 @@ def parse_args(argv):
         help="Subdir containing the project (Cargo.toml / aeneas-config.yml).",
     )
     p.add_argument("--package", help="Verus workspace package name (probe-verus -p).")
-    p.add_argument("--anchor-day", choices=WEEKDAYS, default="friday")
+    p.add_argument(
+        "--anchor-day",
+        choices=WEEKDAYS,
+        default="wednesday",
+        help="Weekday the sample-date grid snaps to (default: wednesday).",
+    )
     p.add_argument(
         "--cadence",
         choices=["weekly", "biweekly", "monthly"],
