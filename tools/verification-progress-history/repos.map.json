@@ -1,0 +1,26 @@
+{
+  "curve25519-dalek-lean-verify": {
+    "signal_shot_key": "curve25519-dalek",
+    "repo_ids": {
+      "dev": 5674,
+      "staging": 3191,
+      "prod": 5280
+    }
+  },
+  "SparsePostQuantumRatchet-verify": {
+    "signal_shot_key": "spqr",
+    "repo_ids": {
+      "dev": 5664,
+      "staging": 3183,
+      "prod": 5278
+    }
+  },
+  "dalek-verus": {
+    "signal_shot_key": null,
+    "repo_ids": {
+      "dev": null,
+      "staging": null,
+      "prod": null
+    }
+  }
+}

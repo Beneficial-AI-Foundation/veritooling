@@ -19,6 +19,8 @@ Reproduce the numbers from any extract JSON with `colors.py <extract.json> --tab
 | `progress_history.py` | Sample history, checkout, run extract, write JSONL/CSV. |
 | `colors.py` | Compute the metric record from one extract JSON. |
 | `plot_progress.py` | Render the burn-up chart (SVG, optional PNG). |
+| `persist_progress_jsonl.py` | Write `ok` samples into VeriLib `repostats` (meaning-based fields). |
+| `repos.map.json` | Project → `{dev,staging,prod}` VeriLib `repo_id` map. |
 | `data/<name>/` | Committed outputs: `progress.{jsonl,csv}`, `burnup*.{svg,png}`. |
 
 ## Requirements
@@ -93,6 +95,52 @@ sorry or assume); `--unspecified` adds `white` (tracked, no spec yet). Those are
 distinct states, so do not read `tracked - verified` as the sorry count. `--png`
 also writes a PNG via rsvg-convert, inkscape, or imagemagick, and `--png-scale`
 sets the raster scale (default 2.0).
+
+## Persist to VeriLib `repostats`
+
+After generating (or refreshing) a `progress.jsonl`, load `ok` samples into the
+target environment's MySQL. Colour fields are renamed to meaning-based columns
+aligned with the burn-up chart:
+
+These are the **same six series** `plot_progress.burnup_svg` plots (values
+copied 1:1; `white`/`yellow` only renamed). Invariants from `colors.py` are
+checked before insert (`verified = light_green+dark_green`, etc.).
+
+| JSONL (plot source) | `repostats` column (meaning-based) |
+|---------------------|------------------------------------|
+| `tracked` | `tracked` |
+| `verified` | `verified` |
+| `verified_trusted` | `verified_trusted` |
+| `translated` | `translated` |
+| `white` | `unspecified` |
+| `yellow` | `in_progress` |
+
+Requires `pip install PyMySQL` (or `apt install python3-pymysql`). Repo ids come
+from `repos.map.json` (or `--repo-id`).
+
+```bash
+# Optional: copy .env.example → .env and load DB defaults
+cp .env.example .env
+set -a && source .env && set +a
+
+python3 persist_progress_jsonl.py \
+  --jsonl data/curve25519-dalek-lean-verify/progress.jsonl \
+  --project curve25519-dalek-lean-verify \
+  --env prod
+
+# Dry-run (no writes):
+python3 persist_progress_jsonl.py \
+  --jsonl data/SparsePostQuantumRatchet-verify/progress.jsonl \
+  --project SparsePostQuantumRatchet-verify \
+  --env staging \
+  --dry-run
+```
+
+DB connection: `--db-host` / `--db-port` / `--db-name` / `--db-user` /
+`--db-password`, or `VERILIB_DB_*` env vars (see `.env.example`). By default the
+script **deletes all existing `repostats` rows for that `repo_id`**, then inserts
+the JSONL series (JSONL is the source of truth; old inaccurate snapshots are
+discarded). Pass `--keep-existing` only if you intentionally want to append.
 
 ## Scheduling weekly updates (cron)
 
