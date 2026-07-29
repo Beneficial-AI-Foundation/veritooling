@@ -126,3 +126,51 @@ def test_load_records_coerces_blueprint_fields(tmp_path):
     p.write_text(json.dumps({"status": "ok", "bp_def_total": "58", "bp_thm_proved": ""}) + "\n")
     (rec,) = pp.load_records(p)
     assert rec["bp_def_total"] == 58 and rec["bp_thm_proved"] == 0
+
+
+def _ln(date, **over):
+    rec = {
+        "status": "ok",
+        "sample_date": date,
+        "repo": "KeyedVerificationAnonymousCredential-model",
+        "pipeline": "lean",
+        "lean_def_total": 137,
+        "lean_def_sorry": 0,
+        "lean_def_verified": 0,
+        "lean_def_trans_verified": 137,
+        "lean_def_trusted": 0,
+        "lean_def_failed": 0,
+        "lean_thm_total": 37,
+        "lean_thm_sorry": 0,
+        "lean_thm_verified": 0,
+        "lean_thm_trans_verified": 37,
+        "lean_thm_trusted": 0,
+        "lean_thm_failed": 0,
+    }
+    rec.update(over)
+    return rec
+
+
+def test_lean_two_panels_and_legends():
+    ok = [_ln("2026-05-01", lean_thm_sorry=5, lean_thm_trans_verified=32), _ln("2026-07-29")]
+    svg = pp.lean_svg(ok, "KVAC", "sub")
+    assert svg.count("<svg") == 3  # two nested panels + outer wrapper
+    assert "definitions" in svg and "theorems" in svg
+    assert "without sorry" in svg and "trust boundary" in svg
+    # lean terms, not colour-pipeline / blueprint terms
+    assert "tracked (ceiling)" not in svg and ">formalized</text>" not in svg
+
+
+def test_lean_mode_autodetected_from_pipeline(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps(_ln("2026-07-29")) + "\n")
+    assert pp.main([str(p)]) == 0
+    svg = (tmp_path / "burnup.svg").read_text()
+    assert "— definitions" in svg and "— theorems" in svg
+
+
+def test_load_records_coerces_lean_fields(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps({"status": "ok", "lean_thm_total": "37", "lean_thm_sorry": ""}) + "\n")
+    (rec,) = pp.load_records(p)
+    assert rec["lean_thm_total"] == 37 and rec["lean_thm_sorry"] == 0

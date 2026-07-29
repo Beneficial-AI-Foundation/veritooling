@@ -17,7 +17,15 @@ but no spec written yet). These are two distinct states; the gap conflates them.
 For a **leanblueprint** history (``pipeline == leanblueprint``) it instead draws
 two stacked panels mirroring the published blueprint site — Definitions (total +
 formalized) and Theorems (total + formalized + proved), where "proved" is the
-probe-lean-confirmed count. The mode is auto-detected from the records.
+probe-lean-confirmed count.
+
+For a **lean** history (``pipeline == lean``, a Lean project with no blueprint)
+it draws two stacked panels — Definitions and Theorems — each with three nested
+frontiers: total, without-sorry (verified + transitively-verified + trusted), and
+the trust boundary (transitively-verified + trusted). There is no fixed ceiling;
+total is just the declaration count, which grows over time.
+
+The mode is auto-detected from the records.
 
 Only ``status == ok`` samples are plotted; gaps (verify_error, timeout, …) are
 skipped, matching how the frontier chart is defined.
@@ -61,7 +69,12 @@ INT_FIELDS = (
     # probe-leanblueprint two-axis metrics (blank -> 0 for colour pipelines)
     "bp_nodes_total bp_nodes_bound bp_nodes_planned bp_nodes_decl_missing "
     "bp_def_total bp_def_formalized "
-    "bp_thm_total bp_thm_formalized bp_thm_proved bp_thm_proved_confirmed"
+    "bp_thm_total bp_thm_formalized bp_thm_proved bp_thm_proved_confirmed "
+    # probe-lean kind-split metrics (the `lean` pipeline; blank otherwise)
+    "lean_def_total lean_def_sorry lean_def_verified lean_def_trans_verified "
+    "lean_def_trusted lean_def_failed "
+    "lean_thm_total lean_thm_sorry lean_thm_verified lean_thm_trans_verified "
+    "lean_thm_trusted lean_thm_failed"
 ).split()
 
 
@@ -331,6 +344,58 @@ def blueprint_svg(ok, base_title, subtitle) -> str:
     return _compose_panels([defs, thms])
 
 
+def _lean_panel(cats, m, prefix, title, subtitle, y_max):
+    """One kind panel (definitions or theorems) with three nested frontiers.
+
+    total >= without-sorry >= trust-boundary. The gap total - without-sorry is the
+    sorry count; without-sorry - trust-boundary is the locally-clean-but-
+    transitively-contaminated set. Derived from the raw per-status counts so the
+    stored record stays faithful to probe-lean's own statuses."""
+    total = [r[f"{prefix}total"] for r in m]
+    no_sorry = [
+        r[f"{prefix}verified"] + r[f"{prefix}trans_verified"] + r[f"{prefix}trusted"] for r in m
+    ]
+    trust = [r[f"{prefix}trans_verified"] + r[f"{prefix}trusted"] for r in m]
+
+    p = Plot(cats, y_max, title, subtitle, "declarations")
+    p.axes()
+    # Largest first so the nested bands read correctly.
+    p.area(total, COL["tracked"], 0.08)
+    p.area(no_sorry, COL["formalized"], 0.14)
+    p.area(trust, COL["proved"], 0.18)
+    p.line(total, COL["tracked"])
+    p.line(no_sorry, COL["formalized"])
+    p.line(trust, COL["proved"])
+    p.legend(
+        [
+            ("total", COL["tracked"]),
+            ("without sorry", COL["formalized"]),
+            ("trust boundary", COL["proved"]),
+        ]
+    )
+    return p
+
+
+def lean_svg(ok, base_title, subtitle) -> str:
+    """Two stacked panels for a plain-Lean (no-blueprint) history: Definitions and
+    Theorems, each with total / without-sorry / trust-boundary. "Without sorry" =
+    verified + transitively-verified + trusted; "trust boundary" = transitively-
+    verified + trusted (sound modulo the axioms/external trust base). Unlike a
+    blueprint history there is no fixed ceiling -- total is the declaration count,
+    which grows over time. A shared y-ceiling keeps the two panels comparable."""
+    cats = [r["sample_date"] for r in ok]
+    y_max = nice_ceiling(
+        max(
+            max((r["lean_def_total"] for r in ok), default=0),
+            max((r["lean_thm_total"] for r in ok), default=0),
+        )
+    )
+    # Subtitle only on the top panel, matching blueprint_svg.
+    defs = _lean_panel(cats, ok, "lean_def_", f"{base_title} — definitions", subtitle, y_max)
+    thms = _lean_panel(cats, ok, "lean_thm_", f"{base_title} — theorems", "", y_max)
+    return _compose_panels([defs, thms])
+
+
 # SVG->PNG converters tried in order (first on PATH wins). The SVG is always the
 # primary output; PNG is an opt-in convenience, so we shell out rather than take
 # a Python dependency, and degrade gracefully when none is installed.
@@ -434,14 +499,17 @@ def main(argv=None) -> int:
         + f" · source: {args.input.name}"
     )
 
-    if ok[0].get("pipeline") == "leanblueprint":
-        if args.in_progress or args.unspecified:
-            print(
-                "[note] --in-progress/--unspecified are colour-pipeline options; "
-                "ignored for leanblueprint.",
-                file=sys.stderr,
-            )
+    pipeline = ok[0].get("pipeline")
+    if pipeline in ("leanblueprint", "lean") and (args.in_progress or args.unspecified):
+        print(
+            f"[note] --in-progress/--unspecified are colour-pipeline options; "
+            f"ignored for {pipeline}.",
+            file=sys.stderr,
+        )
+    if pipeline == "leanblueprint":
         svg = blueprint_svg(ok, args.title or repo, subtitle)
+    elif pipeline == "lean":
+        svg = lean_svg(ok, args.title or repo, subtitle)
     else:
         title = args.title or f"{repo} — verification burn-up"
         svg = burnup_svg(
