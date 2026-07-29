@@ -82,3 +82,46 @@ def test_main_png_when_converter_available(tmp_path):
     p.write_text(json.dumps(_ok("2026-01-02")) + "\n")
     assert pp.main([str(p), "--png"]) == 0
     assert (tmp_path / "burnup.png").is_file()
+
+
+def _bp(date, **over):
+    rec = {
+        "status": "ok",
+        "sample_date": date,
+        "repo": "secure-messaging",
+        "pipeline": "leanblueprint",
+        "bp_def_total": 58,
+        "bp_def_formalized": 29,
+        "bp_thm_total": 56,
+        "bp_thm_formalized": 9,
+        "bp_thm_proved": 9,
+        "bp_thm_proved_confirmed": 8,
+    }
+    rec.update(over)
+    return rec
+
+
+def test_blueprint_two_panels_and_legends():
+    ok = [_bp("2026-06-17", bp_thm_formalized=4), _bp("2026-07-29")]
+    svg = pp.blueprint_svg(ok, "secure-messaging", "sub")
+    # Two stacked panels (nested svgs) + the outer wrapper.
+    assert svg.count("<svg") == 3
+    assert "definitions" in svg and "theorems" in svg
+    # Blueprint terminology, not colour-pipeline terms.
+    assert "formalized" in svg and "proved (confirmed)" in svg
+    assert "tracked (ceiling)" not in svg
+
+
+def test_blueprint_mode_autodetected_from_pipeline(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps(_bp("2026-07-29")) + "\n")
+    assert pp.main([str(p)]) == 0
+    svg = (tmp_path / "burnup.svg").read_text()
+    assert "— definitions" in svg and "— theorems" in svg
+
+
+def test_load_records_coerces_blueprint_fields(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps({"status": "ok", "bp_def_total": "58", "bp_thm_proved": ""}) + "\n")
+    (rec,) = pp.load_records(p)
+    assert rec["bp_def_total"] == 58 and rec["bp_thm_proved"] == 0

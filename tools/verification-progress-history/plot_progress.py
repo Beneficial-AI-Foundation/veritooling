@@ -14,6 +14,11 @@ adds the doc's ``in-progress`` atom status (``yellow``: an incomplete proof,
 sorry / assume) as its own curve, and ``--unspecified`` adds ``white`` (tracked
 but no spec written yet). These are two distinct states; the gap conflates them.
 
+For a **leanblueprint** history (``pipeline == leanblueprint``) it instead draws
+two stacked panels mirroring the published blueprint site — Definitions (total +
+formalized) and Theorems (total + formalized + proved), where "proved" is the
+machine-confirmed count. The mode is auto-detected from the records.
+
 Only ``status == ok`` samples are plotted; gaps (verify_error, timeout, …) are
 skipped, matching how the frontier chart is defined.
 
@@ -41,6 +46,8 @@ COL = {
     "translated": "#2E79B5",  # blue — Aeneas intermediate
     "in_progress": "#E8833A",  # amber — in-progress (yellow: sorry / assume)
     "unspecified": "#B08D57",  # tan — tracked but no spec written yet (white)
+    "formalized": "#2E79B5",  # blue — blueprint statement axis (Lean stated)
+    "proved": "#1F8A65",  # green — blueprint proof axis (sorry-free, confirmed)
     "axis": "#999999",
     "grid": "#E4E4E422",
     "text": "#333333",
@@ -50,7 +57,11 @@ COL = {
 INT_FIELDS = (
     "grey white red yellow light_green dark_green purple exec_total "
     "dot_red dot_yellow dot_green art_total tracked verified verified_trusted "
-    "translated"
+    "translated "
+    # probe-leanblueprint two-axis metrics (blank -> 0 for colour pipelines)
+    "bp_nodes_total bp_nodes_bound bp_nodes_planned bp_nodes_decl_missing "
+    "bp_def_total bp_def_formalized "
+    "bp_thm_total bp_thm_formalized bp_thm_proved bp_thm_proved_confirmed"
 ).split()
 
 
@@ -204,6 +215,35 @@ class Plot:
             f"  {body}\n</svg>\n"
         )
 
+    def nested_svg(self, x: float = 0, y: float = 0) -> str:
+        """This panel as a nested ``<svg>`` at (x, y), for stacking panels in one
+        image. Its self-contained 0..W/0..H coordinate box is independent, so a
+        parent ``<svg>`` just positions it; the transparent background lets the
+        parent's fill show through."""
+        body = "\n  ".join(self.parts)
+        return (
+            f'<svg x="{x}" y="{y}" width="{self.W}" height="{self.H}" '
+            f'viewBox="0 0 {self.W} {self.H}">\n  {body}\n</svg>'
+        )
+
+
+def _compose_panels(panels: list[Plot]) -> str:
+    """Stack panels vertically into one self-contained SVG."""
+    w = panels[0].W
+    h = sum(p.H for p in panels)
+    nested, oy = [], 0.0
+    for p in panels:
+        nested.append(p.nested_svg(0, oy))
+        oy += p.H
+    body = "\n  ".join(nested)
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '
+        f'viewBox="0 0 {w} {h}" '
+        f'font-family="system-ui, -apple-system, Segoe UI, sans-serif">\n'
+        f'  <rect width="{w}" height="{h}" fill="#FFFFFF" />\n'
+        f"  {body}\n</svg>\n"
+    )
+
 
 def burnup_svg(ok, title, subtitle, show_in_progress=False, show_unspecified=False) -> str:
     cats = [r["sample_date"] for r in ok]
@@ -247,6 +287,48 @@ def burnup_svg(ok, title, subtitle, show_in_progress=False, show_unspecified=Fal
         legend.append(("unspecified (no spec)", COL["unspecified"]))
     plot.legend(legend)
     return plot.svg()
+
+
+def blueprint_svg(ok, base_title, subtitle) -> str:
+    """Two stacked panels for a leanblueprint history: Definitions (total +
+    formalized) and Theorems (total + formalized + proved), mirroring the
+    published site. "Proved" is the machine-confirmed count (bp_thm_proved_confirmed).
+    A shared y-ceiling keeps the two panels visually comparable."""
+    cats = [r["sample_date"] for r in ok]
+    def_total = [r["bp_def_total"] for r in ok]
+    def_formalized = [r["bp_def_formalized"] for r in ok]
+    thm_total = [r["bp_thm_total"] for r in ok]
+    thm_formalized = [r["bp_thm_formalized"] for r in ok]
+    thm_proved = [r["bp_thm_proved_confirmed"] for r in ok]
+
+    y_max = nice_ceiling(
+        max((max(def_total) if def_total else 0), (max(thm_total) if thm_total else 0))
+    )
+
+    defs = Plot(cats, y_max, f"{base_title} — definitions", subtitle, "blueprint nodes")
+    defs.axes()
+    defs.area(def_total, COL["tracked"], 0.08)
+    defs.area(def_formalized, COL["formalized"], 0.14)
+    defs.line(def_total, COL["tracked"])
+    defs.line(def_formalized, COL["formalized"])
+    defs.legend([("total (planned)", COL["tracked"]), ("formalized", COL["formalized"])])
+
+    thms = Plot(cats, y_max, f"{base_title} — theorems", "", "blueprint nodes")
+    thms.axes()
+    thms.area(thm_total, COL["tracked"], 0.08)
+    thms.area(thm_formalized, COL["formalized"], 0.14)
+    thms.area(thm_proved, COL["proved"], 0.18)
+    thms.line(thm_total, COL["tracked"])
+    thms.line(thm_formalized, COL["formalized"])
+    thms.line(thm_proved, COL["proved"])
+    thms.legend(
+        [
+            ("total (planned)", COL["tracked"]),
+            ("formalized", COL["formalized"]),
+            ("proved (confirmed)", COL["proved"]),
+        ]
+    )
+    return _compose_panels([defs, thms])
 
 
 # SVG->PNG converters tried in order (first on PATH wins). The SVG is always the
@@ -352,10 +434,23 @@ def main(argv=None) -> int:
         + f" · source: {args.input.name}"
     )
 
-    title = args.title or f"{repo} — verification burn-up"
-    svg = burnup_svg(
-        ok, title, subtitle, show_in_progress=args.in_progress, show_unspecified=args.unspecified
-    )
+    if ok[0].get("pipeline") == "leanblueprint":
+        if args.in_progress or args.unspecified:
+            print(
+                "[note] --in-progress/--unspecified are colour-pipeline options; "
+                "ignored for leanblueprint.",
+                file=sys.stderr,
+            )
+        svg = blueprint_svg(ok, args.title or repo, subtitle)
+    else:
+        title = args.title or f"{repo} — verification burn-up"
+        svg = burnup_svg(
+            ok,
+            title,
+            subtitle,
+            show_in_progress=args.in_progress,
+            show_unspecified=args.unspecified,
+        )
     # Default alongside the input: data/<name>/progress.jsonl -> .../burnup.svg.
     # (Pass -o for variants like burnup-inprogress.svg so they don't collide.)
     default_stem = "burnup" if args.input.stem == "progress" else f"{args.input.stem}-burnup"
