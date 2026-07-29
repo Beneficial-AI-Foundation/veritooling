@@ -1,26 +1,29 @@
 {
   "curve25519-dalek-lean-verify": {
     "signal_shot_key": "curve25519-dalek",
+    "repo_url": "https://github.com/Beneficial-AI-Foundation/curve25519-dalek-lean-verify",
     "repo_ids": {
-      "dev": 5674,
-      "staging": 3191,
-      "prod": 5280
+      "dev": 5607,
+      "staging": 3178,
+      "prod": 5232
     }
   },
   "SparsePostQuantumRatchet-verify": {
     "signal_shot_key": "spqr",
+    "repo_url": "https://github.com/Beneficial-AI-Foundation/SparsePostQuantumRatchet-verify",
     "repo_ids": {
-      "dev": 5664,
-      "staging": 3183,
-      "prod": 5278
+      "dev": 5608,
+      "staging": 3175,
+      "prod": 5173
     }
   },
   "dalek-verus": {
     "signal_shot_key": null,
+    "repo_url": "https://github.com/Beneficial-AI-Foundation/dalek-verus",
     "repo_ids": {
-      "dev": null,
-      "staging": null,
-      "prod": null
+      "dev": 5594,
+      "staging": 3171,
+      "prod": 5132
     }
   }
 }
