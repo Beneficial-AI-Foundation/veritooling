@@ -69,6 +69,46 @@ stated and 9 have complete, probe-lean-confirmed sorry-free proofs.
   meaning (statement written); the definition/theorem difference is carried by
   theorems having a second milestone (`Proved`) that definitions lack.
 
+## Combined-atoms chart (`plot_progress.py --atoms`)
+
+The two-panel chart above keys definitions and theorems off the **blueprint**
+axes. The combined chart instead puts every node in one atom pool and takes the
+proof status from **probe-lean**, using the FC ("Atom statuses and colours")
+vocabulary. Each formalized node's bound-atom `verification-status` values are
+rolled up to one node status by worst-status precedence:
+
+```
+failed  >  unverified  >  trusted  >  {verified, transitively-verified}
+```
+
+matching `colors.py` (`verified` and `transitively-verified` are both green;
+`trusted` — axiom/external — dominates green so any trust reliance keeps a node
+out of strict `verified`). Every node then lands in exactly one bucket:
+
+| bucket | meaning |
+|--------|---------|
+| **unspecified** | statement not `formalized` (no Lean statement yet) |
+| **unrealized** | `formalized` but no bound decl (a planned/decl-missing over-claim) |
+| **in-progress** | `formalized`, a bound atom is `unverified` (a `sorry`) |
+| **failed** | `formalized`, a bound atom `failed` to elaborate |
+| **verified** | `formalized`, all bound atoms green (verified / transitively-verified) |
+| **verified + trusted** | the `verified` bucket plus nodes whose rollup is `trusted` |
+
+Per kind, `verified + trusted + in_progress + failed + unrealized` equals
+`formalized`; `unspecified` is `total − formalized`. The plotted `verified` and
+`verified + trusted` series sum def and thm together.
+
+Two caveats. (1) Trust is detected only within a node's own bindings, so a green
+node depending on an axiom in another node still reads `verified` (a full fix
+needs a `collectAxioms`-style transitive walk; see the plan). (2) The chart
+measures **blueprint completion**, not repo-wide sorry debt: `in-progress` counts
+only formalized blueprint nodes whose bindings hold a `sorry`. A `sorry` in a
+declaration the blueprint does not track — e.g. secure-messaging's `PRFPRNG` WIP
+(10 sorry decls incl. a `security` theorem, none bound to a blueprint node) — is
+invisible, so `in-progress = 0` is not "no sorries in the repo". Surfacing that
+is [#34](https://github.com/Beneficial-AI-Foundation/veritooling/issues/34).
+Rationale and review trail: `combined-atoms-plan.md`.
+
 ## Reproduce a single point
 
 Straight from any extract JSON, independent of the history tool:

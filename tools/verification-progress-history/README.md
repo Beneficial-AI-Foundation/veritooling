@@ -161,6 +161,76 @@ the statement is written in Lean; *proved* = the proof is sorry-free and
 probe-lean-confirmed. `--in-progress`/`--unspecified` are colour-pipeline options
 and are ignored here.
 
+`--atoms` (leanblueprint only) draws instead a single **combined** panel that
+puts definitions and theorems in one atom pool, using the FC ("Atom statuses and
+colours") vocabulary: nested frontiers `tracked ≥ verified+trusted ≥ verified`,
+plus zero-based `in-progress` (a `sorry`) and `failed` curves; `--unspecified`
+adds the no-Lean-statement curve. The unit is a **blueprint node** (stated in the
+subtitle), and the ceiling is a per-sample inventory — it can go down as well as up,
+so this is not a monotonic burn-up. The statement axis (`unspecified` /
+`formalized` ceiling) comes from the blueprint; the proof split
+(`verified` = green = verified + transitively-verified; `+trusted` =
+axiom/external; `in-progress` = `unverified`; `failed`) comes from probe-lean's
+own per-atom `verification-status`, rolled up per node by worst status — matching
+`colors.py` so the chart is consistent with the colour burn-up. Writes
+`burnup-atoms.svg` (never overwrites the two-panel `burnup.svg`). Trust is
+detected only among a node's own bindings, so a green node that leans on an axiom
+in *another* node still reads verified (documented caveat, not a bug). `--atoms`
+refuses to plot a history that predates the per-node columns rather than
+rendering them as zero; `--strict` exits non-zero if any sample violates the
+frontier nesting (the warning is stamped into the SVG regardless).
+See `combined-atoms-plan.md` for the full derivation.
+
+**Scope caveat.** This chart measures *blueprint completion*, not repo-wide sorry
+debt. `in-progress` counts only formalized blueprint **nodes** whose bindings
+contain a `sorry`; a `sorry` in a declaration the blueprint does not track (not
+bound to, nor reachable from, any formalized node) is invisible here. So
+`in-progress = 0` means "every formalized blueprint node is sorry-free", not "the
+repo has no sorries". Surfacing untracked sorry debt is tracked in
+[#34](https://github.com/Beneficial-AI-Foundation/veritooling/issues/34).
+
+## How to read the charts
+
+All charts share one vocabulary — **tracked** (the ceiling), **verified +
+trusted**, **verified**, **in-progress**, **unspecified**, **failed** — from the
+VeriLib "Atom statuses and colours" (FC) model. What differs is the *unit* being
+counted, stated on each chart's y-axis and subtitle. Read a chart as nested
+frontiers (larger contains smaller) plus zero-based status counts.
+
+**Colour burn-up** (`burnup.svg`, verus/aeneas — y-axis "atom count").
+Unit: a Rust `exec` atom.
+- **tracked (ceiling)** — atoms in scope (`exec_total − grey/disabled`).
+- **verified + trusted** — proved (green) plus axiom/`trusted` (purple): the
+  completion frontier.
+- **verified** — proved with no trust reliance (green).
+- **in-progress** (`--in-progress`) — `yellow`: an incomplete proof (sorry/assume).
+- **unspecified** (`--unspecified`) — `white`: tracked, no spec written yet.
+- **translated** — Aeneas-only intermediate.
+The gap `tracked − (verified+trusted)` is `white + yellow + red` — do **not**
+read it as the sorry count; `--in-progress`/`--unspecified` split it into real
+counts.
+
+**Blueprint two-panel** (`burnup.svg`, leanblueprint — y-axis "blueprint nodes").
+Unit: a blueprint node, split into a Definitions panel and a Theorems panel.
+- **total** — every node of that kind (bound + planned + over-claim).
+- **formalized** — the Lean statement/signature exists (blueprint statement axis).
+- **proved** (theorems only) — sorry-free and probe-lean-confirmed.
+
+**Combined atoms** (`burnup-atoms.svg`, leanblueprint `--atoms` — y-axis
+"blueprint nodes"). Unit: a blueprint node; definitions and theorems pooled. Same
+FC bands as the colour burn-up, but the *statement* axis comes from the blueprint
+and the *proof* status from probe-lean (see subtitle):
+- **tracked (ceiling)** — all nodes (a per-sample inventory; may rise or fall).
+- **verified + trusted** — formalized nodes whose bound atoms are all clean,
+  incl. `trusted` (axiom/external).
+- **verified** — the subset with no trusted binding (green: probe-lean `verified`
+  + `transitively-verified`).
+- **in-progress** — formalized nodes with a `sorry` in a binding.
+- **failed** — formalized nodes with an elaboration error.
+- **unspecified** (`--unspecified`) — nodes with no Lean statement yet.
+Because the unit is a node, sorries in code the blueprint does not track are not
+shown (the Scope caveat above).
+
 ## Scheduling weekly updates (cron)
 
 `--resume` makes the tool incremental and safe to run unattended: it fetches new
@@ -200,6 +270,12 @@ columns above stay blank, as `translated` does for non-Aeneas):
 bp_def_total, bp_def_formalized, bp_thm_total, bp_thm_formalized, bp_thm_proved,
 bp_thm_proved_confirmed`
 
+plus, for the `--atoms` chart, a per-kind probe-lean proof-status partition over
+the *formalized* nodes:
+
+`bp_def_verified, bp_def_trusted, bp_def_in_progress, bp_def_failed,
+bp_def_unrealized` (and the `bp_thm_*` counterparts)
+
 A blueprint node has two axes (see probe-leanblueprint's `docs/SCHEMA.md`):
 *statement* (`formalized` = the Lean statement/signature exists) and *proof*
 (`fully-proved` = sorry-free). `bp_*_formalized` counts statement-`formalized`
@@ -208,7 +284,10 @@ nodes; `bp_thm_proved` counts the blueprint's `fully-proved` claim, and
 binding present, not contradicted by probe-lean) — the honest headline, matching
 probe-leanblueprint's `theorems-fully-proved-probe-lean-confirmed`. `bp_nodes_*`
 split every node into bound (has a decl), planned-only (a pure stub), and
-decl-missing (an over-claim).
+decl-missing (an over-claim). The `bp_*_{verified,trusted,in_progress,failed,
+unrealized}` set partitions the formalized nodes by the probe-lean status rolled
+up from their bound atoms (worst status wins; `unrealized` = formalized but no
+bound decl); per kind they sum to `bp_*_formalized`.
 
 `status` is one of `ok`, `setup_failed`, `checkout_failed`, `extract_failed`,
 `verify_error`, `timeout`, `commit_mismatch`. Only `ok` samples are charted;

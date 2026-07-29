@@ -90,6 +90,18 @@ BLUEPRINT_METRIC_KEYS = [
     "thm_formalized",
     "thm_proved",
     "thm_proved_confirmed",
+    # Per-kind probe-lean proof-status partition over the formalized nodes
+    # (the combined-atoms chart). See blueprint_progress._kind_buckets.
+    "def_verified",
+    "def_trusted",
+    "def_in_progress",
+    "def_failed",
+    "def_unrealized",
+    "thm_verified",
+    "thm_trusted",
+    "thm_in_progress",
+    "thm_failed",
+    "thm_unrealized",
 ]
 BLUEPRINT_FIELDS = [f"bp_{k}" for k in BLUEPRINT_METRIC_KEYS]
 RECORD_FIELDS = (
