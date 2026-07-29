@@ -325,7 +325,7 @@ def blueprint_svg(ok, base_title, subtitle) -> str:
         [
             ("total (planned)", COL["tracked"]),
             ("formalized", COL["formalized"]),
-            ("proved (probe-lean-confirmed)", COL["proved"]),
+            ("proved", COL["proved"]),
         ]
     )
     return _compose_panels([defs, thms])
