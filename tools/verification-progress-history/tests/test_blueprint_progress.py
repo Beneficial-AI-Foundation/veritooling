@@ -3,7 +3,9 @@
 import blueprint_progress
 
 
-def _node(kind, statement, proof, *, bound=False, decl_missing=False, mismatch=False):
+def _node(
+    kind, statement, proof, *, bound=False, decl_missing=False, missing_decls=False, mismatch=False
+):
     """One blueprint node as a single atom.
 
     Bound nodes carry a real (non-``blueprint``) Lean atom; planned/decl-missing
@@ -18,6 +20,8 @@ def _node(kind, statement, proof, *, bound=False, decl_missing=False, mismatch=F
     }
     if decl_missing:
         atom["blueprint-decl-missing"] = True
+    if missing_decls:
+        atom["blueprint-missing-decls"] = ["Foo.bar"]
     if mismatch:
         atom["blueprint-status-mismatch"] = "proof over-claimed"
     return atom
@@ -58,11 +62,22 @@ def test_two_axis_counts():
     )
     assert (m["def_total"], m["def_formalized"]) == (3, 2)
     assert (m["thm_total"], m["thm_formalized"]) == (4, 3)
-    # Blueprint claims 3 fully-proved theorems; only 1 is machine-confirmed
+    # Blueprint claims 3 fully-proved theorems; only 1 is probe-lean-confirmed
     # (the other two are decl-missing / status-mismatch).
     assert m["thm_proved"] == 3
     assert m["thm_proved_confirmed"] == 1
     assert m["warnings"] == []
+
+
+def test_partial_missing_not_probe_lean_confirmed():
+    # A bound, fully-proved theorem with some decls missing (partial-missing) is
+    # NOT probe-lean-confirmed: probe-lean-confirmed needs the whole binding present.
+    env = _envelope(
+        [_node("theorem", "formalized", "fully-proved", bound=True, missing_decls=True)]
+    )
+    m = blueprint_progress.count_blueprint(env)
+    assert m["thm_proved"] == 1  # blueprint claims it fully-proved
+    assert m["thm_proved_confirmed"] == 0  # but partial-missing -> not confirmed
 
 
 def test_shadow_atom_counts_as_bound():

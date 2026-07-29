@@ -158,7 +158,7 @@ two stacked panels are drawn instead, mirroring the published blueprint site:
 **Definitions** (`total` + `formalized`) and **Theorems** (`total` +
 `formalized` + `proved`). Terms are axis-explicit (see Output): *formalized* =
 the statement is written in Lean; *proved* = the proof is sorry-free and
-machine-confirmed. `--in-progress`/`--unspecified` are colour-pipeline options
+probe-lean-confirmed. `--in-progress`/`--unspecified` are colour-pipeline options
 and are ignored here.
 
 ## Scheduling weekly updates (cron)
@@ -204,9 +204,11 @@ A blueprint node has two axes (see probe-leanblueprint's `docs/SCHEMA.md`):
 *statement* (`formalized` = the Lean statement/signature exists) and *proof*
 (`fully-proved` = sorry-free). `bp_*_formalized` counts statement-`formalized`
 nodes; `bp_thm_proved` counts the blueprint's `fully-proved` claim, and
-`bp_thm_proved_confirmed` the subset probe-lean backs (bound, no mismatch) — the
-honest headline. `bp_nodes_*` split every node into bound (has a decl),
-planned-only (a pure stub), and decl-missing (an over-claim).
+`bp_thm_proved_confirmed` the **probe-lean-confirmed** subset (bound, whole
+binding present, not contradicted by probe-lean) — the honest headline, matching
+probe-leanblueprint's `theorems-fully-proved-probe-lean-confirmed`. `bp_nodes_*`
+split every node into bound (has a decl), planned-only (a pure stub), and
+decl-missing (an over-claim).
 
 `status` is one of `ok`, `setup_failed`, `checkout_failed`, `extract_failed`,
 `verify_error`, `timeout`, `commit_mismatch`. Only `ok` samples are charted;

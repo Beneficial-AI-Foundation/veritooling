@@ -108,7 +108,7 @@ def test_blueprint_two_panels_and_legends():
     assert svg.count("<svg") == 3
     assert "definitions" in svg and "theorems" in svg
     # Blueprint terminology, not colour-pipeline terms.
-    assert "formalized" in svg and "proved (confirmed)" in svg
+    assert "formalized" in svg and "proved (probe-lean-confirmed)" in svg
     assert "tracked (ceiling)" not in svg
 
 

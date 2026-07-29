@@ -39,12 +39,13 @@ proof-status, whether it is bound to a real Lean decl), and computes:
 |--------|------------|
 | **Total** | every blueprint node (`bound` + `planned-only` + `decl-missing`) |
 | **Formalized** | nodes with `statement-status == "formalized"` — the Lean statement/signature exists |
-| **Proved (confirmed)** | theorem nodes with `proof-status == "fully-proved"` **and** machine-backed (bound to a decl, no status mismatch) — sorry-free and probe-lean agrees |
+| **Proved (probe-lean-confirmed)** | theorem nodes with `proof-status == "fully-proved"` **and** probe-lean-confirmed (bound, whole binding present, not contradicted by probe-lean) |
 
 split into **definitions** vs **theorems** by node kind. The two axes come from
-the blueprint; probe-lean's machine `verification-status` is what makes "proved"
-*confirmed* rather than merely the blueprint's claim (`bp_thm_proved` keeps the
-bare claim; `bp_thm_proved_confirmed` is the honest, machine-backed number).
+the blueprint; probe-lean's own `verification-status` is what makes "proved"
+*probe-lean-confirmed* rather than merely the blueprint's claim (`bp_thm_proved`
+keeps the bare claim; `bp_thm_proved_confirmed` is the honest, probe-lean-confirmed
+number — probe-leanblueprint's `theorems-fully-proved-probe-lean-confirmed`).
 
 Node buckets underlying `Total`:
 
@@ -55,7 +56,7 @@ Node buckets underlying `Total`:
 
 Worked example — **2026-07-22**: 114 nodes total; of the 58 definition nodes, 28
 have their Lean statement written (formalized); of the 56 theorem nodes, 9 are
-stated and 9 have complete, machine-confirmed sorry-free proofs.
+stated and 9 have complete, probe-lean-confirmed sorry-free proofs.
 
 ## Which nodes count, and the terminology
 

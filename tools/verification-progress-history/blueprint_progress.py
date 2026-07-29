@@ -19,10 +19,12 @@ The burn-up uses axis-explicit terms, per kind (see the plan, "Terminology"):
   Proved      proof-status == "fully-proved"          (theorems)
 
 "Proved" is reported twice: ``thm_proved`` is the blueprint's own claim, and
-``thm_proved_confirmed`` additionally requires probe-lean's own verification to
-back it (node bound, no status mismatch) -- the honest headline, since a
-blueprint may over-claim. For a code-derived Verso blueprint the two coincide;
-for a ``declared`` Massot blueprint they can diverge.
+``thm_proved_confirmed`` is the **probe-lean-confirmed** count -- it additionally
+requires probe-lean's own verification to back the claim (node bound, whole
+binding present, no status mismatch), so a blueprint that over-claims doesn't
+inflate it. For a code-derived Verso blueprint the two coincide; for a
+``declared`` Massot blueprint they can diverge. (Matches probe-leanblueprint's
+``theorems-fully-proved-probe-lean-confirmed``.)
 
 Nodes split three ways (mirrors the sidecar ``totals``):
   bound         node bound to a real probe-lean decl (a.k.a. "with-lean-decl")
@@ -54,7 +56,15 @@ def _iter_atoms(data) -> list:
 class _Node:
     """One blueprint node, assembled from all atoms sharing its blueprint-label."""
 
-    __slots__ = ("kind", "statement", "proof", "bound", "decl_missing", "mismatch")
+    __slots__ = (
+        "kind",
+        "statement",
+        "proof",
+        "bound",
+        "decl_missing",
+        "missing_decls",
+        "mismatch",
+    )
 
     def __init__(self):
         self.kind = "theorem"
@@ -62,6 +72,7 @@ class _Node:
         self.proof = "none"
         self.bound = False
         self.decl_missing = False
+        self.missing_decls = False  # partial-missing: bound but some decls absent
         self.mismatch = False
 
 
@@ -91,6 +102,8 @@ def _collect_nodes(data) -> list[_Node]:
             n.bound = True
         if atom.get("blueprint-decl-missing"):
             n.decl_missing = True
+        if atom.get("blueprint-missing-decls"):
+            n.missing_decls = True
         if atom.get("blueprint-status-mismatch"):
             n.mismatch = True
     return list(nodes.values())
@@ -116,10 +129,14 @@ def count_blueprint(envelope: dict) -> dict:
     def_formalized = sum(1 for n in defs if n.statement == "formalized")
     thm_formalized = sum(1 for n in thms if n.statement == "formalized")
     thm_proved = sum(1 for n in thms if n.proof == "fully-proved")
-    # Machine-confirmed: the blueprint claims fully-proved AND probe-lean backs it
-    # (node bound, not contradicted). Mirrors probe-leanblueprint's own summary.
+    # probe-lean-confirmed: the blueprint claims fully-proved, the node's whole
+    # binding is present (bound with no missing decls), and probe-lean did not
+    # contradict it (no status mismatch). A "not refuted" bar, not "affirmatively
+    # verified". Mirrors probe-leanblueprint's own summary headline.
     thm_proved_confirmed = sum(
-        1 for n in thms if n.proof == "fully-proved" and n.bound and not n.mismatch
+        1
+        for n in thms
+        if n.proof == "fully-proved" and n.bound and not n.missing_decls and not n.mismatch
     )
 
     warnings: list[str] = []
@@ -172,7 +189,7 @@ def _format_table(m: dict) -> str:
         f"  Total:      {m['thm_total']}",
         f"  Formalized: {m['thm_formalized']}",
         f"  Proved:     {m['thm_proved']}   (blueprint claim)",
-        f"  Proved (machine-confirmed): {m['thm_proved_confirmed']}",
+        f"  Proved (probe-lean-confirmed): {m['thm_proved_confirmed']}",
     ]
     for w in m["warnings"]:
         lines.append(f"  WARNING: {w}")

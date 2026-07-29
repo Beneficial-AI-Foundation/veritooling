@@ -17,7 +17,7 @@ but no spec written yet). These are two distinct states; the gap conflates them.
 For a **leanblueprint** history (``pipeline == leanblueprint``) it instead draws
 two stacked panels mirroring the published blueprint site — Definitions (total +
 formalized) and Theorems (total + formalized + proved), where "proved" is the
-machine-confirmed count. The mode is auto-detected from the records.
+probe-lean-confirmed count. The mode is auto-detected from the records.
 
 Only ``status == ok`` samples are plotted; gaps (verify_error, timeout, …) are
 skipped, matching how the frontier chart is defined.
@@ -292,7 +292,7 @@ def burnup_svg(ok, title, subtitle, show_in_progress=False, show_unspecified=Fal
 def blueprint_svg(ok, base_title, subtitle) -> str:
     """Two stacked panels for a leanblueprint history: Definitions (total +
     formalized) and Theorems (total + formalized + proved), mirroring the
-    published site. "Proved" is the machine-confirmed count (bp_thm_proved_confirmed).
+    published site. "Proved" is the probe-lean-confirmed count (bp_thm_proved_confirmed).
     A shared y-ceiling keeps the two panels visually comparable."""
     cats = [r["sample_date"] for r in ok]
     def_total = [r["bp_def_total"] for r in ok]
@@ -325,7 +325,7 @@ def blueprint_svg(ok, base_title, subtitle) -> str:
         [
             ("total (planned)", COL["tracked"]),
             ("formalized", COL["formalized"]),
-            ("proved (confirmed)", COL["proved"]),
+            ("proved (probe-lean-confirmed)", COL["proved"]),
         ]
     )
     return _compose_panels([defs, thms])
