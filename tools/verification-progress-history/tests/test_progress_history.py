@@ -231,6 +231,12 @@ def test_dep_cache_key_depends_on_toolchain_and_manifest(tmp_path):
     assert k1.startswith("v4.30.0-")  # readable toolchain prefix
 
 
+def test_dep_cache_key_none_without_manifest(tmp_path):
+    # No lake-manifest.json -> refuse to cache (keying on toolchain alone would
+    # collide different dependency sets on the same Lean version).
+    assert ph._dep_cache_key(tmp_path, "leanprover/lean4:v4.30.0") is None
+
+
 def test_dep_cache_save_and_restore_roundtrip(tmp_path):
     # A fake project with two built dep packages.
     project = tmp_path / "proj"
@@ -268,6 +274,73 @@ def test_dep_cache_restore_miss_and_save_idempotent(tmp_path):
     before = marker.stat().st_mtime
     ph.save_dep_cache(project, cache, key)  # idempotent: no re-copy
     assert marker.stat().st_mtime == before
+
+
+def test_dep_cache_restore_fresh_clone_bails(tmp_path):
+    # Cache populated, but the project has no .lake/packages (fresh clone: dep
+    # sources not fetched). Restore must bail rather than create build-without-
+    # source dirs.
+    cache = tmp_path / "cache"
+    (cache / "v4.30.0-abc" / "VCVio" / "build").mkdir(parents=True)
+    (cache / "v4.30.0-abc" / "VCVio" / "build" / "x.olean").write_text("v")
+    project = tmp_path / "proj"
+    project.mkdir()
+    assert ph.restore_dep_cache(project, cache, "v4.30.0-abc") is False
+    assert not (project / ".lake").exists()  # nothing materialized
+
+
+def test_dep_cache_restore_skips_dep_without_source(tmp_path):
+    # .lake/packages exists but the specific dep's source dir is absent -> skip
+    # that dep (don't restore a build with no source).
+    project = tmp_path / "proj"
+    (project / ".lake" / "packages" / "other").mkdir(parents=True)  # some other pkg source
+    cache = tmp_path / "cache"
+    (cache / "k" / "VCVio" / "build").mkdir(parents=True)
+    (cache / "k" / "VCVio" / "build" / "x.olean").write_text("v")
+    assert ph.restore_dep_cache(project, cache, "k") is False
+    assert not (project / ".lake" / "packages" / "VCVio").exists()
+
+
+def test_verso_blueprint_in_comment_not_detected(tmp_path):
+    # A commented mention of versoBlueprint must not force the leanblueprint pipeline.
+    (tmp_path / "lean-toolchain").write_text("leanprover/lean4:v4.30.0")
+    (tmp_path / "lakefile.toml").write_text(
+        '# this project could use versoBlueprint later\n[[require]]\nname = "mathlib"\n'
+    )
+    assert ph._has_verso_blueprint(tmp_path) is False
+    assert ph.detect_pipeline(tmp_path) == "lean"
+
+
+def test_scrub_paths_and_atomic_write(tmp_path):
+    text = "wrote /tmp/wc/x/y.json under /tmp/wc/x; see /home/u/bin/probe-lean-v9"
+    scrubbed = ph._scrub_paths(text, "/tmp/wc/x", "/tmp/wc", "/home/u/bin")
+    assert "/tmp/wc" not in scrubbed and "/home/u/bin" not in scrubbed
+    assert scrubbed.count("<path>") == 3
+
+    out = tmp_path / "sub" / "f.txt"
+    ph._atomic_write(out, "hello")
+    assert out.read_text() == "hello"
+    assert not list(tmp_path.glob("**/.*.tmp-*"))  # no temp file left behind
+
+
+def test_append_record_scrubs_reason_paths(tmp_path):
+    jsonl, csv_path = tmp_path / "progress.jsonl", tmp_path / "progress.csv"
+    ph._REDACT_PATHS.clear()
+    ph._REDACT_PATHS.add("/tmp/vph-sm")
+    try:
+        ph.append_record(
+            jsonl,
+            csv_path,
+            {
+                "commit": "a",
+                "reason": "no JSON; wrote /tmp/vph-sm/.verilib/x",
+                "status": "extract_failed",
+            },
+        )
+    finally:
+        ph._REDACT_PATHS.clear()
+    rec = ph._read_jsonl(jsonl)[0]
+    assert "/tmp/vph-sm" not in rec["reason"] and "<path>" in rec["reason"]
 
 
 def test_leanblueprint_clear_render_cache(tmp_path):

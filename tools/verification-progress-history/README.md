@@ -117,6 +117,12 @@ time and is safe to delete anytime. Point it at a persistent, roomy location to
 make re-runs, `--retry-failed`, and finer cadences essentially free on the
 dependency-build front.
 
+The cache is consulted on a toolchain change or a fresh clone (when the dep
+builds are wiped/absent). A same-toolchain sample keeps its dep builds and, if
+only a dependency rev bumps within that toolchain, relies on lake's incremental
+rebuild rather than a cache restore. Disabled for a sample with no
+`lake-manifest.json` (the key would otherwise collapse to the toolchain alone).
+
 ### A single commit
 
 To (re)sample one commit and update its row, pass `--commit` (repeatable) instead

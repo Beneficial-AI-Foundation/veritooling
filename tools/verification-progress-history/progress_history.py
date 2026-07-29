@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import io
 import json
 import os
 import re
@@ -110,6 +111,30 @@ RECORD_FIELDS = (
 )
 
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+# Absolute paths scrubbed from recorded `reason` strings before they are written
+# (the history files are committed, so must stay machine-independent). Populated
+# per run in main(); empty otherwise, so scrubbing is a no-op in unit tests.
+_REDACT_PATHS: set[str] = set()
+
+
+def _scrub_paths(text: str, *paths) -> str:
+    """Replace absolute work-clone / project / bin paths in recorded output with a
+    stable ``<path>`` placeholder. Longest first, so a nested project dir is
+    scrubbed before its parent clone."""
+    for p in sorted({str(x) for x in paths if x}, key=len, reverse=True):
+        text = text.replace(p, "<path>")
+    return text
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Write via a temp file + ``os.replace`` so an interrupted run cannot
+    truncate the committed history file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    with open(tmp, "w", newline="", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
 
 
 # --------------------------------------------------------------------------- #
@@ -189,12 +214,17 @@ def ensure_work_clone(repo: str, work_clone: Path) -> Path:
 def _has_verso_blueprint(project_dir: Path) -> bool:
     """True if a lakefile in the project (or its ``docs/`` subdir) declares the
     versoBlueprint dependency -- the signal probe-leanblueprint uses to pick the
-    Verso adapter."""
+    Verso adapter. Line comments (``#`` in TOML, ``--`` in Lean) are stripped
+    first so a mention in a comment doesn't mis-detect the pipeline."""
     for base in (project_dir, project_dir / "docs"):
         for name in ("lakefile.toml", "lakefile.lean"):
             f = base / name
-            if f.is_file() and "versoBlueprint" in f.read_text(encoding="utf-8", errors="ignore"):
-                return True
+            if not f.is_file():
+                continue
+            for line in f.read_text(encoding="utf-8", errors="ignore").splitlines():
+                code = line.split("#", 1)[0].split("--", 1)[0]
+                if "versoBlueprint" in code:
+                    return True
     return False
 
 
@@ -594,14 +624,20 @@ def lean_sync_deps(project_dir: Path):
 # --------------------------------------------------------------------------- #
 # Dependency-build cache (leanblueprint): reuse compiled deps across runs
 # --------------------------------------------------------------------------- #
-def _dep_cache_key(project_dir: Path, tc: str) -> str:
+def _dep_cache_key(project_dir: Path, tc: str) -> str | None:
     """Cache key for the dependency build: a pure function of the Lean toolchain
     and the full lake manifest (which pins every dep's rev). Two samples with the
     same (toolchain, manifest) have byte-identical dep oleans, so their compiled
     deps are interchangeable -- e.g. every secure-messaging v4.30 commit pins the
-    same VCVio rev, so one build serves them all."""
+    same VCVio rev, so one build serves them all.
+
+    Returns None when there is no ``lake-manifest.json``: keying on the toolchain
+    alone would collide different dependency sets on the same Lean version, so we
+    refuse to cache rather than risk replaying the wrong build."""
     manifest = project_dir / "lake-manifest.json"
-    mtext = manifest.read_text(encoding="utf-8", errors="ignore") if manifest.is_file() else ""
+    if not manifest.is_file():
+        return None
+    mtext = manifest.read_text(encoding="utf-8", errors="ignore")
     digest = hashlib.sha256(f"{tc}\n{mtext}".encode()).hexdigest()[:16]
     return f"{_lean_version_from_toolchain(tc) or 'lean'}-{digest}"
 
@@ -623,13 +659,20 @@ def restore_dep_cache(project_dir: Path, cache_dir: Path, key: str) -> bool:
     if not src.is_dir():
         return False
     pkgs = project_dir / ".lake" / "packages"
-    pkgs.mkdir(parents=True, exist_ok=True)
+    if not pkgs.is_dir():
+        # Fresh clone: dep sources not fetched yet. Restoring a build into a
+        # non-existent package checkout would leave lake to reconcile a
+        # half-materialized package; skip so `cache get` + a source build runs.
+        return False
     restored = 0
     for entry in sorted(src.iterdir()):
         cached_build = entry / "build"
-        if not cached_build.is_dir():
+        pkg_dir = pkgs / entry.name
+        # Only restore into a real package checkout (source present); a build with
+        # no source dir is worse than no cache.
+        if not cached_build.is_dir() or not pkg_dir.is_dir():
             continue
-        dest = pkgs / entry.name / ".lake" / "build"
+        dest = pkg_dir / ".lake" / "build"
         if dest.exists():
             shutil.rmtree(dest, ignore_errors=True)
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -716,7 +759,9 @@ def lean_prepare(project_dir: Path, dep_cache_dir: Path | None = None, state: di
         # from-source compile of cacheless deps (e.g. VCVio, which alone can be an
         # hour+). Falls back to `cache get` (mathlib) + a source build on a miss;
         # the result is snapshotted after a successful extract (see the main loop).
-        restored = bool(dep_cache_dir) and restore_dep_cache(project_dir, dep_cache_dir, key)
+        restored = bool(dep_cache_dir and key) and restore_dep_cache(
+            project_dir, dep_cache_dir, key
+        )
         if restored:
             print(f"  [lean] restored dep builds from cache ({key})")
         else:
@@ -809,23 +854,23 @@ def append_record(jsonl: Path, csv_path: Path, record: dict):
     is deliberate: upsert-by-commit needs the existing rows, and n is small (one
     row per sampled period, tens over a multi-year history) while each sample
     costs minutes of real verification, so the rewrite is never the bottleneck."""
-    jsonl.parent.mkdir(parents=True, exist_ok=True)
+    if record.get("reason") and _REDACT_PATHS:
+        record["reason"] = _scrub_paths(record["reason"], *_REDACT_PATHS)
     kept = [r for r in _read_jsonl(jsonl) if r.get("commit") != record.get("commit")]
     kept.append(record)
-    with open(jsonl, "w", encoding="utf-8") as f:
-        for r in kept:
-            f.write(json.dumps(r) + "\n")
+    _atomic_write(jsonl, "".join(json.dumps(r) + "\n" for r in kept))
     regenerate_csv(jsonl, csv_path)
 
 
 def regenerate_csv(jsonl: Path, csv_path: Path):
     rows = _read_jsonl(jsonl)
     rows.sort(key=lambda r: (r.get("commit_date") or "", r.get("sample_date") or ""))
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=RECORD_FIELDS, extrasaction="ignore")
-        w.writeheader()
-        for r in rows:
-            w.writerow(r)
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=RECORD_FIELDS, extrasaction="ignore")
+    w.writeheader()
+    for r in rows:
+        w.writerow(r)
+    _atomic_write(csv_path, buf.getvalue())
 
 
 def blank_metrics():
@@ -970,6 +1015,11 @@ def main(argv=None):
     work_clone = ensure_work_clone(args.repo, work_clone)
     project_dir = (work_clone / args.project_subdir).resolve()
 
+    # Scrub these absolute paths from recorded `reason` strings (committed data
+    # must be machine-independent). More may be added per pipeline below.
+    _REDACT_PATHS.clear()
+    _REDACT_PATHS.update({str(work_clone), str(project_dir)})
+
     pipeline = args.pipeline
     if pipeline == "auto":
         pipeline = detect_pipeline(project_dir)
@@ -999,6 +1049,8 @@ def main(argv=None):
         _LEANBP_STATE.clear()
         _LEANBP_STATE["managed_bin"] = managed
         os.environ["PATH"] = f"{managed}{os.pathsep}{os.environ.get('PATH', '')}"
+        if args.probe_lean_dir:
+            _REDACT_PATHS.add(str(args.probe_lean_dir))  # setup_failed reasons cite this
         print(f"[leanblueprint] probe-lean selected per sample from {args.probe_lean_dir}")
 
     anchor_idx = WEEKDAYS.index(args.anchor_day)
