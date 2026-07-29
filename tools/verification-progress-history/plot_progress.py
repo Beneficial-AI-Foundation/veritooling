@@ -424,8 +424,7 @@ def combined_atoms_svg(ok, base_title, subtitle, show_unspecified=False):
     for j, w in enumerate(warnings[:3]):
         yy = plot.H - 30 + j * 12
         plot.parts.append(
-            f'<text x="{plot.ml}" y="{yy}" font-size="10" fill="{COL["failed"]}">'
-            f"⚠ {esc(w)}</text>"
+            f'<text x="{plot.ml}" y="{yy}" font-size="10" fill="{COL["failed"]}">⚠ {esc(w)}</text>'
         )
     return plot.svg(), warnings
 
