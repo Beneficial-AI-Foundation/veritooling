@@ -124,6 +124,14 @@ RECORD_FIELDS = (
 
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
+# Opt-in installer for a missing per-version probe-lean (see probe_lean_setup /
+# --install-probe-lean). The official installer writes to ~/.local/bin/probe-lean-
+# <version>; `{version}` is substituted with the Lean version (e.g. v4.30.0).
+DEFAULT_PROBE_LEAN_INSTALLER = (
+    "curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/"
+    "probe-lean/main/tools/bash/install.sh | bash -s -- --lean-version {version}"
+)
+
 # Absolute paths scrubbed from recorded `reason` strings before they are written
 # (the history files are committed, so must stay machine-independent). Populated
 # per run in main(); empty otherwise, so scrubbing is a no-op in unit tests.
@@ -489,6 +497,27 @@ def _lean_version_from_toolchain(tc: str | None) -> str | None:
     return m.group(0) if m else None
 
 
+def _install_probe_lean(ver, args, state):
+    """Fetch/build ``probe-lean-<ver>`` via the installer (opt-in, see
+    ``--install-probe-lean``). Mirrors ``verus_setup`` shelling out to
+    ``probe-verus setup``: the Lean equivalent is probe-lean's ``install.sh``,
+    which writes ``~/.local/bin/probe-lean-<version>``.
+
+    Deduped per version within a run via ``state['install_attempted']`` so a
+    version that fails to install is not retried on every later sample. Returns
+    None on success (or when already attempted), or a failure reason string."""
+    attempted = state.setdefault("install_attempted", set())
+    if ver in attempted:
+        return None
+    attempted.add(ver)
+    cmd = args.probe_lean_install_cmd.format(version=ver)
+    print(f"  [setup] probe-lean-{ver} missing -> installing: {cmd}")
+    code, out = run(["sh", "-c", cmd], timeout=args.setup_timeout)
+    if code != 0:
+        return f"probe-lean-{ver} install failed (code {code}): {_last_line(out)}"[:300]
+    return None
+
+
 def probe_lean_setup(project_dir, args, state):
     """Point ``probe-lean`` at the binary matching this commit's Lean toolchain.
 
@@ -511,8 +540,15 @@ def probe_lean_setup(project_dir, args, state):
     if not args.probe_lean_dir:
         return "probe-lean not on PATH; install it or pass --probe-lean-dir"
     binary = args.probe_lean_dir / f"probe-lean-{ver}"
+    if not binary.is_file() and getattr(args, "install_probe_lean", False):
+        reason = _install_probe_lean(ver, args, state)
+        if reason:
+            return reason
     if not binary.is_file():
-        return f"no probe-lean-{ver} at {binary}; install it or set --probe-lean-dir"
+        hint = "install it or set --probe-lean-dir"
+        if not getattr(args, "install_probe_lean", False):
+            hint += " (or pass --install-probe-lean to fetch it automatically)"
+        return f"no probe-lean-{ver} at {binary}; {hint}"
     link = state["managed_bin"] / "probe-lean"
     if link.is_symlink() or link.exists():
         link.unlink()
@@ -973,9 +1009,25 @@ def parse_args(argv):
         type=Path,
         default=None,
         help="Directory of per-version probe-lean binaries (probe-lean-v<ver>); "
-        "default: the directory of `probe-lean` on PATH. The leanblueprint "
-        "pipeline selects the one matching each commit's lean-toolchain, since "
+        "default: the directory of `probe-lean` on PATH. The lean and leanblueprint "
+        "pipelines select the one matching each commit's lean-toolchain, since "
         "probe-lean reads version-specific .oleans.",
+    )
+    p.add_argument(
+        "--install-probe-lean",
+        action="store_true",
+        help="If the probe-lean binary matching a sample's lean-toolchain is "
+        "missing, fetch/build it via the installer (--probe-lean-install-cmd) "
+        "instead of recording setup_failed. Off by default (it runs a network "
+        "installer). The installer writes to ~/.local/bin, so --probe-lean-dir "
+        "must point there (the default when probe-lean is installed the usual way).",
+    )
+    p.add_argument(
+        "--probe-lean-install-cmd",
+        default=DEFAULT_PROBE_LEAN_INSTALLER,
+        help="Command run (via sh -c) to install a missing probe-lean version when "
+        "--install-probe-lean is set; `{version}` is substituted with the Lean "
+        "version (e.g. v4.30.0). Default: the official curl|bash installer.",
     )
     p.add_argument(
         "--dep-cache-dir",

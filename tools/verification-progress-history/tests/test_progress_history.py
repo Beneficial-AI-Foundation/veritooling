@@ -255,6 +255,75 @@ def test_probe_lean_setup_actionable_messages(tmp_path):
     assert "--probe-lean-dir" in r2 and "None" not in r2
 
 
+def test_probe_lean_setup_auto_installs_missing_version(tmp_path):
+    import types
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "lean-toolchain").write_text("leanprover/lean4:v4.30.0")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    # Fake installer standing in for the curl|bash one-liner: just drops the
+    # versioned binary into --probe-lean-dir. `{version}` is substituted by setup.
+    args = types.SimpleNamespace(
+        probe_lean_dir=bindir,
+        install_probe_lean=True,
+        probe_lean_install_cmd=f"touch {bindir}/probe-lean-{{version}}",
+        setup_timeout=60,
+    )
+    state = {"managed_bin": managed}
+
+    assert ph.probe_lean_setup(project, args, state) is None
+    assert (bindir / "probe-lean-v4.30.0").is_file()
+    link = managed / "probe-lean"
+    assert link.resolve() == (bindir / "probe-lean-v4.30.0").resolve()
+    assert state["probe_lean_version"] == "v4.30.0"
+
+
+def test_probe_lean_setup_failed_install_not_retried(tmp_path):
+    import types
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "lean-toolchain").write_text("leanprover/lean4:v4.30.0")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    args = types.SimpleNamespace(
+        probe_lean_dir=bindir,
+        install_probe_lean=True,
+        probe_lean_install_cmd="exit 1",  # installer that always fails
+        setup_timeout=60,
+    )
+    state = {"managed_bin": managed}
+    r1 = ph.probe_lean_setup(project, args, state)
+    assert r1 and "install failed" in r1
+    # Second sample, same version: install is not retried, but still reports missing.
+    args.probe_lean_install_cmd = "exit 1"
+    r2 = ph.probe_lean_setup(project, args, state)
+    assert r2 and "no probe-lean-v4.30.0" in r2
+    assert state["install_attempted"] == {"v4.30.0"}
+
+
+def test_probe_lean_setup_missing_hint_mentions_install_flag(tmp_path):
+    import types
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "lean-toolchain").write_text("leanprover/lean4:v4.99.0")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    r = ph.probe_lean_setup(
+        project,
+        types.SimpleNamespace(probe_lean_dir=bindir),
+        {"managed_bin": tmp_path / "m"},
+    )
+    assert "--install-probe-lean" in r  # actionable when the flag is off
+
+
 def test_dep_cache_key_depends_on_toolchain_and_manifest(tmp_path):
     (tmp_path / "lake-manifest.json").write_text('{"packages":[{"name":"VCVio","rev":"abc"}]}')
     k1 = ph._dep_cache_key(tmp_path, "leanprover/lean4:v4.30.0")

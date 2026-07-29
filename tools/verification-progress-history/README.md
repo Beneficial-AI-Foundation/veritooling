@@ -149,9 +149,19 @@ Same probe-lean mechanics as `leanblueprint`: **probe-lean is
 Lean-version-specific**, so each sample runs the `probe-lean-v<toolchain>`
 matching that commit (from `--probe-lean-dir`), and `--dep-cache-dir` keys the
 compiled dependency builds by `(Lean toolchain, lake manifest)` to skip
-recompiles. There is no Verso render step. At HEAD, KVAC is fully proved (0
-`sorry`), so the payoff is the history walk showing the sorries close, not the
-snapshot.
+recompiles. There is no Verso render step. The committed
+`data/KeyedVerificationAnonymousCredential-model/` capture is 4 monthly samples
+over `experiment/bump-v4.30.0` spanning the v4.28.0 → v4.30.0 toolchain bump;
+declarations grow 9 → 174 with 0 `sorry`/axioms throughout, so the three
+frontiers coincide — a cleanly-verified, growing project. The payoff of the walk
+is watching the frontiers *diverge* on a project that carries proof debt.
+
+Add `--install-probe-lean` to auto-fetch a missing `probe-lean-v<ver>` via the
+installer instead of recording `setup_failed` (the Lean analogue of `probe-verus
+setup`; shared with the `leanblueprint` pipeline). It is off by default because it
+runs a network installer (`--probe-lean-install-cmd` overrides the command, e.g.
+to point at a vetted local `install.sh`); the official installer writes to
+`~/.local/bin`, so `--probe-lean-dir` must resolve there.
 
 ### A single commit
 
@@ -168,7 +178,8 @@ python3 progress_history.py /path/to/dalek-verus \
 
 Other options: `--cadence {weekly,biweekly,monthly}` (or `--cadence-weeks N`),
 `--anchor-day`, `--branch`, `--until`, `--output`/`--csv`, `--smt-seed`,
-`--skip-verify`. Run `--help` for the full list.
+`--skip-verify`, `--install-probe-lean`/`--probe-lean-install-cmd`. Run `--help`
+for the full list.
 
 ## Plot
 
