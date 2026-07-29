@@ -490,12 +490,16 @@ def leanblueprint_setup(project_dir, args, state):
     probe-leanblueprint then invokes bare ``probe-lean`` and picks it up.
     Returns None on success, or a failure reason string."""
     tc = detect_lean_toolchain(project_dir)
+    if not tc:
+        return "no lean-toolchain file in the project; cannot pick a probe-lean version"
     ver = _lean_version_from_toolchain(tc)
     if not ver:
         return f"could not parse a Lean version from lean-toolchain {tc!r}"
-    binary = (args.probe_lean_dir / f"probe-lean-{ver}") if args.probe_lean_dir else None
-    if not binary or not binary.is_file():
-        return f"no probe-lean for {ver} (looked for {binary}); install probe-lean-{ver}"
+    if not args.probe_lean_dir:
+        return "probe-lean not on PATH; install it or pass --probe-lean-dir"
+    binary = args.probe_lean_dir / f"probe-lean-{ver}"
+    if not binary.is_file():
+        return f"no probe-lean-{ver} at {binary}; install it or set --probe-lean-dir"
     link = state["managed_bin"] / "probe-lean"
     if link.is_symlink() or link.exists():
         link.unlink()

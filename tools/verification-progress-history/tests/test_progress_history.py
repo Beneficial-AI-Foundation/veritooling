@@ -221,6 +221,26 @@ def test_leanblueprint_setup_missing_version_reports(tmp_path):
     assert not (managed / "probe-lean").exists()
 
 
+def test_leanblueprint_setup_actionable_messages(tmp_path):
+    import types
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    # No lean-toolchain file -> names the missing file, not "tc=None".
+    r1 = ph.leanblueprint_setup(
+        project, types.SimpleNamespace(probe_lean_dir=tmp_path), {"managed_bin": managed}
+    )
+    assert "lean-toolchain" in r1 and "None" not in r1
+    # Toolchain present but no probe-lean dir -> points at --probe-lean-dir.
+    (project / "lean-toolchain").write_text("leanprover/lean4:v4.30.0")
+    r2 = ph.leanblueprint_setup(
+        project, types.SimpleNamespace(probe_lean_dir=None), {"managed_bin": managed}
+    )
+    assert "--probe-lean-dir" in r2 and "None" not in r2
+
+
 def test_dep_cache_key_depends_on_toolchain_and_manifest(tmp_path):
     (tmp_path / "lake-manifest.json").write_text('{"packages":[{"name":"VCVio","rev":"abc"}]}')
     k1 = ph._dep_cache_key(tmp_path, "leanprover/lean4:v4.30.0")

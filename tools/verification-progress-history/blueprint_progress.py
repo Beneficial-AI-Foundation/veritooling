@@ -19,9 +19,10 @@ The burn-up uses axis-explicit terms, per kind (see the plan, "Terminology"):
   Proved      proof-status == "fully-proved"          (theorems)
 
 "Proved" is reported twice: ``thm_proved`` is the blueprint's own claim, and
-``thm_proved_confirmed`` additionally requires probe-lean to back it (node bound,
-no status mismatch) -- the honest headline (P26). For a code-derived Verso
-blueprint the two coincide; for a ``declared`` Massot blueprint they can diverge.
+``thm_proved_confirmed`` additionally requires probe-lean's own verification to
+back it (node bound, no status mismatch) -- the honest headline, since a
+blueprint may over-claim. For a code-derived Verso blueprint the two coincide;
+for a ``declared`` Massot blueprint they can diverge.
 
 Nodes split three ways (mirrors the sidecar ``totals``):
   bound         node bound to a real probe-lean decl (a.k.a. "with-lean-decl")
@@ -116,7 +117,7 @@ def count_blueprint(envelope: dict) -> dict:
     thm_formalized = sum(1 for n in thms if n.statement == "formalized")
     thm_proved = sum(1 for n in thms if n.proof == "fully-proved")
     # Machine-confirmed: the blueprint claims fully-proved AND probe-lean backs it
-    # (node bound, not contradicted). Mirrors the Rust summary; see P26.
+    # (node bound, not contradicted). Mirrors probe-leanblueprint's own summary.
     thm_proved_confirmed = sum(
         1 for n in thms if n.proof == "fully-proved" and n.bound and not n.mismatch
     )
