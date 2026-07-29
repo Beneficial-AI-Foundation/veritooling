@@ -161,6 +161,10 @@ the statement is written in Lean; *proved* = the proof is sorry-free and
 probe-lean-confirmed. `--in-progress`/`--unspecified` are colour-pipeline options
 and are ignored here.
 
+```bash
+python3 plot_progress.py data/secure-messaging/progress.jsonl --atoms --unspecified --png
+```
+
 `--atoms` (leanblueprint only) draws instead a single **combined** panel that
 puts definitions and theorems in one atom pool, using the FC ("Atom statuses and
 colours") vocabulary: nested frontiers `tracked ≥ verified+trusted ≥ verified`,
