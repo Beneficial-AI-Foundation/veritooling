@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import io
 import json
 import os
 import re
@@ -44,6 +46,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from blueprint_progress import count_blueprint
 from colors import count_colors
 
 # Outputs live next to the tool, one folder per repo: data/<name>/.
@@ -51,6 +54,8 @@ DATA_DIR = Path(__file__).resolve().parent / "data"
 
 # Cross-sample state (e.g. last-installed Verus release for setup-dedup).
 _VERUS_STATE: dict = {}
+# Cross-sample state for leanblueprint (managed bin dir + last probe-lean version).
+_LEANBP_STATE: dict = {}
 
 # Fixed column order for the CSV / JSONL records.
 METRIC_FIELDS = [
@@ -71,21 +76,77 @@ METRIC_FIELDS = [
     "verified_trusted",
     "translated",
 ]
-RECORD_FIELDS = [
-    "repo",
-    "pipeline",
-    "sample_date",
-    "commit",
-    "commit_date",
-    "tool",
-    "tool_version",
-    "status",
-    "reason",
-    "commit_validated",
-    "duration_sec",
-] + METRIC_FIELDS
+# probe-leanblueprint two-axis progress metrics; blank for the colour pipelines
+# (same convention as `translated` being Aeneas-only). Prefixed `bp_` in the
+# record; count_blueprint returns them unprefixed.
+BLUEPRINT_METRIC_KEYS = [
+    "nodes_total",
+    "nodes_bound",
+    "nodes_planned",
+    "nodes_decl_missing",
+    "def_total",
+    "def_formalized",
+    "thm_total",
+    "thm_formalized",
+    "thm_proved",
+    "thm_proved_confirmed",
+    # Per-kind probe-lean proof-status partition over the formalized nodes
+    # (the combined-atoms chart). See blueprint_progress._kind_buckets.
+    "def_verified",
+    "def_trusted",
+    "def_in_progress",
+    "def_failed",
+    "def_unrealized",
+    "thm_verified",
+    "thm_trusted",
+    "thm_in_progress",
+    "thm_failed",
+    "thm_unrealized",
+]
+BLUEPRINT_FIELDS = [f"bp_{k}" for k in BLUEPRINT_METRIC_KEYS]
+RECORD_FIELDS = (
+    [
+        "repo",
+        "pipeline",
+        "sample_date",
+        "commit",
+        "commit_date",
+        "tool",
+        "tool_version",
+        "status",
+        "reason",
+        "commit_validated",
+        "duration_sec",
+    ]
+    + METRIC_FIELDS
+    + BLUEPRINT_FIELDS
+)
 
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+# Absolute paths scrubbed from recorded `reason` strings before they are written
+# (the history files are committed, so must stay machine-independent). Populated
+# per run in main(); empty otherwise, so scrubbing is a no-op in unit tests.
+_REDACT_PATHS: set[str] = set()
+
+
+def _scrub_paths(text: str, *paths) -> str:
+    """Replace absolute work-clone / project / bin paths in recorded output with a
+    stable ``<path>`` placeholder. Longest first, so a nested project dir is
+    scrubbed before its parent clone."""
+    for p in sorted({str(x) for x in paths if x}, key=len, reverse=True):
+        text = text.replace(p, "<path>")
+    return text
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Write via a temp file + ``os.replace`` so an interrupted run cannot
+    truncate the committed history file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    with open(tmp, "w", newline="", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
 
 
 # --------------------------------------------------------------------------- #
@@ -162,9 +223,31 @@ def ensure_work_clone(repo: str, work_clone: Path) -> Path:
 # --------------------------------------------------------------------------- #
 # Pipeline detection
 # --------------------------------------------------------------------------- #
+def _has_verso_blueprint(project_dir: Path) -> bool:
+    """True if a lakefile in the project (or its ``docs/`` subdir) declares the
+    versoBlueprint dependency -- the signal probe-leanblueprint uses to pick the
+    Verso adapter. Line comments (``#`` in TOML, ``--`` in Lean) are stripped
+    first so a mention in a comment doesn't mis-detect the pipeline."""
+    for base in (project_dir, project_dir / "docs"):
+        for name in ("lakefile.toml", "lakefile.lean"):
+            f = base / name
+            if not f.is_file():
+                continue
+            for line in f.read_text(encoding="utf-8", errors="ignore").splitlines():
+                code = line.split("#", 1)[0].split("--", 1)[0]
+                if "versoBlueprint" in code:
+                    return True
+    return False
+
+
 def detect_pipeline(project_dir: Path) -> str:
     if (project_dir / "aeneas-config.yml").is_file():
         return "aeneas"
+    if (
+        _has_verso_blueprint(project_dir)
+        or (project_dir / "blueprint" / "src" / "web.tex").is_file()
+    ):
+        return "leanblueprint"
     cargo = project_dir / "Cargo.toml"
     if cargo.is_file():
         text = cargo.read_text(encoding="utf-8", errors="ignore")
@@ -304,6 +387,7 @@ UNIFIED_SCHEMA = {
     "verus": "probe-verus/extract",
     "aeneas": "probe-aeneas/extract",
     "lean": "probe-lean/extract",
+    "leanblueprint": "probe-leanblueprint/extract",
 }
 
 
@@ -313,7 +397,12 @@ def find_fresh_extract(project_dir: Path, pipeline: str, since_ts: float):
     if not probes.is_dir():
         return None, None
     want = UNIFIED_SCHEMA[pipeline]
-    prefix = {"verus": "verus_", "aeneas": "aeneas_", "lean": "lean_"}[pipeline]
+    prefix = {
+        "verus": "verus_",
+        "aeneas": "aeneas_",
+        "lean": "lean_",
+        "leanblueprint": "leanblueprint_",
+    }[pipeline]
     best = None
     for p in probes.glob(f"{prefix}*.json"):
         try:
@@ -392,6 +481,47 @@ def detect_lean_toolchain(project_dir: Path) -> str | None:
     return None
 
 
+def _lean_version_from_toolchain(tc: str | None) -> str | None:
+    """``leanprover/lean4:v4.30.0`` -> ``v4.30.0`` (keeps an ``-rcN`` suffix)."""
+    if not tc:
+        return None
+    m = re.search(r"v\d+\.\d+\.\d+(?:-rc\d+)?", tc)
+    return m.group(0) if m else None
+
+
+def leanblueprint_setup(project_dir, args, state):
+    """Point ``probe-lean`` at the binary matching this commit's Lean toolchain.
+
+    probe-lean reads ``.olean``s, whose binary format is Lean-version-specific,
+    so the probe-lean used at each sample must match the target's
+    ``lean-toolchain`` -- unlike Verus/Aeneas, one pinned probe cannot span a
+    toolchain change. Versioned binaries are expected as
+    ``<probe-lean-dir>/probe-lean-v<version>`` (the standard per-version install
+    layout). We expose the match as ``probe-lean`` on a tool-managed PATH prefix
+    (never touching the user's own ``probe-lean`` symlink), refreshed per sample.
+    probe-leanblueprint then invokes bare ``probe-lean`` and picks it up.
+    Returns None on success, or a failure reason string."""
+    tc = detect_lean_toolchain(project_dir)
+    if not tc:
+        return "no lean-toolchain file in the project; cannot pick a probe-lean version"
+    ver = _lean_version_from_toolchain(tc)
+    if not ver:
+        return f"could not parse a Lean version from lean-toolchain {tc!r}"
+    if not args.probe_lean_dir:
+        return "probe-lean not on PATH; install it or pass --probe-lean-dir"
+    binary = args.probe_lean_dir / f"probe-lean-{ver}"
+    if not binary.is_file():
+        return f"no probe-lean-{ver} at {binary}; install it or set --probe-lean-dir"
+    link = state["managed_bin"] / "probe-lean"
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    link.symlink_to(binary.resolve())
+    if ver != state.get("probe_lean_version"):
+        print(f"  [setup] probe-lean -> probe-lean-{ver} (matches {tc})")
+        state["probe_lean_version"] = ver
+    return None
+
+
 def _norm_url(u: str | None) -> str | None:
     if not u:
         return None
@@ -434,6 +564,22 @@ def lean_clear_extract_cache(project_dir: Path):
                 f.unlink()
         except OSError:
             pass
+
+
+def leanblueprint_clear_render_cache(project_dir: Path):
+    """Delete the Verso render output so each sample re-renders from ITS commit.
+
+    probe-leanblueprint's zero-config path discovers manifests under
+    ``<render_root>/_out/site`` and only runs ``lake exe vbp build`` when none
+    exist -- so a reused work-clone would serve an earlier commit's blueprint to
+    every later sample. The extract's ``source.commit`` is git-derived, so the
+    commit-match guard would NOT catch this; we must drop the render ourselves.
+    Cover the project root and ``docs/`` (either may hold the versoBlueprint
+    lakefile). Pure render output, safe to remove."""
+    for base in (project_dir, project_dir / "docs"):
+        site = base / "_out" / "site"
+        if site.exists():
+            shutil.rmtree(site, ignore_errors=True)
 
 
 def lean_sync_deps(project_dir: Path):
@@ -491,7 +637,99 @@ def lean_sync_deps(project_dir: Path):
             print(f"  [lean] WARNING: could not check out {d.name} @ {rev[:12]}")
 
 
-def lean_prepare(project_dir: Path):
+# --------------------------------------------------------------------------- #
+# Dependency-build cache (leanblueprint): reuse compiled deps across runs
+# --------------------------------------------------------------------------- #
+def _dep_cache_key(project_dir: Path, tc: str) -> str | None:
+    """Cache key for the dependency build: a pure function of the Lean toolchain
+    and the full lake manifest (which pins every dep's rev). Two samples with the
+    same (toolchain, manifest) have byte-identical dep oleans, so their compiled
+    deps are interchangeable -- e.g. every secure-messaging v4.30 commit pins the
+    same VCVio rev, so one build serves them all.
+
+    Returns None when there is no ``lake-manifest.json``: keying on the toolchain
+    alone would collide different dependency sets on the same Lean version, so we
+    refuse to cache rather than risk replaying the wrong build."""
+    manifest = project_dir / "lake-manifest.json"
+    if not manifest.is_file():
+        return None
+    mtext = manifest.read_text(encoding="utf-8", errors="ignore")
+    digest = hashlib.sha256(f"{tc}\n{mtext}".encode()).hexdigest()[:16]
+    return f"{_lean_version_from_toolchain(tc) or 'lean'}-{digest}"
+
+
+def _dep_pkg_build_dirs(project_dir: Path) -> list[Path]:
+    """Package dirs under ``.lake/packages`` that have a built ``.lake/build``."""
+    pkgs = project_dir / ".lake" / "packages"
+    if not pkgs.is_dir():
+        return []
+    return [d for d in sorted(pkgs.iterdir()) if (d / ".lake" / "build").is_dir()]
+
+
+def restore_dep_cache(project_dir: Path, cache_dir: Path, key: str) -> bool:
+    """Restore cached dependency build trees for ``key``. Returns True on a hit.
+
+    Copies with ``cp -a`` to preserve the mtimes lake's trace-checking relies on,
+    so restored deps are seen as up to date and are not recompiled."""
+    src = Path(cache_dir) / key
+    if not src.is_dir():
+        return False
+    pkgs = project_dir / ".lake" / "packages"
+    if not pkgs.is_dir():
+        # Fresh clone: dep sources not fetched yet. Restoring a build into a
+        # non-existent package checkout would leave lake to reconcile a
+        # half-materialized package; skip so `cache get` + a source build runs.
+        return False
+    restored = 0
+    for entry in sorted(src.iterdir()):
+        cached_build = entry / "build"
+        pkg_dir = pkgs / entry.name
+        # Only restore into a real package checkout (source present); a build with
+        # no source dir is worse than no cache.
+        if not cached_build.is_dir() or not pkg_dir.is_dir():
+            continue
+        dest = pkg_dir / ".lake" / "build"
+        if dest.exists():
+            shutil.rmtree(dest, ignore_errors=True)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        code, out = run(["cp", "-a", str(cached_build), str(dest)])
+        if code != 0:
+            print(f"  [lean][warn] dep-cache restore failed for {entry.name}: {_last_line(out)}")
+            return False
+        restored += 1
+    return restored > 0
+
+
+def save_dep_cache(project_dir: Path, cache_dir: Path, key: str) -> None:
+    """Snapshot dependency build trees to the cache under ``key`` (idempotent: a
+    no-op if the key is already cached). Written to a temp dir then renamed, so an
+    interrupted snapshot never leaves a half-populated entry."""
+    dest = Path(cache_dir) / key
+    if dest.exists():
+        return
+    deps = _dep_pkg_build_dirs(project_dir)
+    if not deps:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = Path(cache_dir) / f".{key}.tmp-{os.getpid()}"
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True, exist_ok=True)
+    for d in deps:
+        target = tmp / d.name / "build"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        code, out = run(["cp", "-a", str(d / ".lake" / "build"), str(target)])
+        if code != 0:
+            print(f"  [lean][warn] dep-cache save failed for {d.name}: {_last_line(out)}")
+            shutil.rmtree(tmp, ignore_errors=True)
+            return
+    try:
+        os.replace(tmp, dest)
+        print(f"  [lean] cached dep builds ({key})")
+    except OSError:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def lean_prepare(project_dir: Path, dep_cache_dir: Path | None = None, state: dict | None = None):
     """Prepare the Lean/Aeneas build for a fresh sample in the shared work-clone.
 
     Two cross-commit hazards, both handled here:
@@ -518,9 +756,12 @@ def lean_prepare(project_dir: Path):
     lake_dir = project_dir / ".lake"
     sentinel = lake_dir / ".vph-lean-toolchain"
     prev = sentinel.read_text(encoding="utf-8").strip() if sentinel.is_file() else None
+    key = _dep_cache_key(project_dir, tc) if dep_cache_dir else None
+    if state is not None and key:
+        state["dep_cache_key"] = key
     if prev != tc:
         # Toolchain changed (or first build in this clone): clean any prior build
-        # and (re)fetch prebuilt oleans for this toolchain.
+        # and restore/(re)fetch prebuilt oleans for this toolchain.
         if (lake_dir / "build").exists():
             print(f"  [lean] toolchain -> {tc} (changed) -> lake clean")
             code, out = run(["lake", "clean"], cwd=project_dir, timeout=600)
@@ -530,17 +771,27 @@ def lean_prepare(project_dir: Path):
         # otherwise resolution dies ("unable to read tree") and oleans aren't
         # fetched (forcing a slow Mathlib source build).
         lean_sync_deps(project_dir)
-        # mathlib ships a `cache get` exe that fetches prebuilt oleans matching
-        # the pinned rev + toolchain; harmless no-op elsewhere. A failure here is
-        # not fatal (lake falls back to a source build) but is worth surfacing,
-        # since it turns a fast sample into a very slow one.
-        print(f"  [lean] lake exe cache get ({tc})")
-        code, out = run(["lake", "exe", "cache", "get"], cwd=project_dir, timeout=1800)
-        if code != 0:
-            print(
-                f"  [lean][warn] lake exe cache get exit={code} "
-                f"(may force a slow source build): {_last_line(out)}"
-            )
+        # Prefer a full dependency-build restore: it skips both `cache get` and the
+        # from-source compile of cacheless deps (e.g. VCVio, which alone can be an
+        # hour+). Falls back to `cache get` (mathlib) + a source build on a miss;
+        # the result is snapshotted after a successful extract (see the main loop).
+        restored = bool(dep_cache_dir and key) and restore_dep_cache(
+            project_dir, dep_cache_dir, key
+        )
+        if restored:
+            print(f"  [lean] restored dep builds from cache ({key})")
+        else:
+            # mathlib ships a `cache get` exe that fetches prebuilt oleans matching
+            # the pinned rev + toolchain; harmless no-op elsewhere. Not fatal on
+            # failure (lake falls back to a source build) but worth surfacing,
+            # since it turns a fast sample into a very slow one.
+            print(f"  [lean] lake exe cache get ({tc})")
+            code, out = run(["lake", "exe", "cache", "get"], cwd=project_dir, timeout=1800)
+            if code != 0:
+                print(
+                    f"  [lean][warn] lake exe cache get exit={code} "
+                    f"(may force a slow source build): {_last_line(out)}"
+                )
     else:
         # Same toolchain: keep dep/Mathlib builds (expensive), but drop the ROOT
         # project build so this commit's regenerated modules rebuild cleanly.
@@ -571,6 +822,10 @@ def run_extract_cmd(pipeline, project_dir, args):
             cmd += ["--verus-args", *args.verus_args]
     elif pipeline == "aeneas":
         cmd = [args.probe_aeneas, "extract", str(project_dir)]
+    elif pipeline == "leanblueprint":
+        cmd = [args.probe_leanblueprint, "extract", str(project_dir)]
+        if args.verso_render_cmd:
+            cmd += ["--verso-render-cmd", args.verso_render_cmd]
     else:
         return 127, f"pipeline {pipeline} not supported"
     return run(cmd, timeout=args.sample_timeout)
@@ -615,27 +870,27 @@ def append_record(jsonl: Path, csv_path: Path, record: dict):
     is deliberate: upsert-by-commit needs the existing rows, and n is small (one
     row per sampled period, tens over a multi-year history) while each sample
     costs minutes of real verification, so the rewrite is never the bottleneck."""
-    jsonl.parent.mkdir(parents=True, exist_ok=True)
+    if record.get("reason") and _REDACT_PATHS:
+        record["reason"] = _scrub_paths(record["reason"], *_REDACT_PATHS)
     kept = [r for r in _read_jsonl(jsonl) if r.get("commit") != record.get("commit")]
     kept.append(record)
-    with open(jsonl, "w", encoding="utf-8") as f:
-        for r in kept:
-            f.write(json.dumps(r) + "\n")
+    _atomic_write(jsonl, "".join(json.dumps(r) + "\n" for r in kept))
     regenerate_csv(jsonl, csv_path)
 
 
 def regenerate_csv(jsonl: Path, csv_path: Path):
     rows = _read_jsonl(jsonl)
     rows.sort(key=lambda r: (r.get("commit_date") or "", r.get("sample_date") or ""))
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=RECORD_FIELDS, extrasaction="ignore")
-        w.writeheader()
-        for r in rows:
-            w.writerow(r)
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=RECORD_FIELDS, extrasaction="ignore")
+    w.writeheader()
+    for r in rows:
+        w.writerow(r)
+    _atomic_write(csv_path, buf.getvalue())
 
 
 def blank_metrics():
-    return {k: "" for k in METRIC_FIELDS}
+    return {k: "" for k in METRIC_FIELDS + BLUEPRINT_FIELDS}
 
 
 # --------------------------------------------------------------------------- #
@@ -646,7 +901,11 @@ def parse_args(argv):
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     p.add_argument("repo", help="GitHub URL or local path to the project repo.")
-    p.add_argument("--pipeline", choices=["auto", "verus", "aeneas", "lean"], default="auto")
+    p.add_argument(
+        "--pipeline",
+        choices=["auto", "verus", "aeneas", "lean", "leanblueprint"],
+        default="auto",
+    )
     p.add_argument(
         "--project-subdir",
         default=".",
@@ -698,6 +957,34 @@ def parse_args(argv):
     p.add_argument("--probe-verus", default="probe-verus", help="Pinned probe-verus binary.")
     p.add_argument("--probe-aeneas", default="probe-aeneas", help="Pinned probe-aeneas binary.")
     p.add_argument(
+        "--probe-leanblueprint",
+        default="probe-leanblueprint",
+        help="Pinned probe-leanblueprint binary.",
+    )
+    p.add_argument(
+        "--probe-lean-dir",
+        type=Path,
+        default=None,
+        help="Directory of per-version probe-lean binaries (probe-lean-v<ver>); "
+        "default: the directory of `probe-lean` on PATH. The leanblueprint "
+        "pipeline selects the one matching each commit's lean-toolchain, since "
+        "probe-lean reads version-specific .oleans.",
+    )
+    p.add_argument(
+        "--dep-cache-dir",
+        type=Path,
+        default=None,
+        help="Directory for a persistent dependency-build cache (leanblueprint). "
+        "When set, compiled dep builds (e.g. VCVio) are snapshotted per (Lean "
+        "toolchain, lake manifest) and restored on later samples/runs instead of "
+        "recompiling. Trades disk for time; safe to delete anytime.",
+    )
+    p.add_argument(
+        "--verso-render-cmd",
+        help="Override the Verso render command probe-leanblueprint runs "
+        "(via sh -c in the blueprint root), e.g. scripts/render-docs-site.sh.",
+    )
+    p.add_argument(
         "--smt-seed",
         type=int,
         default=0,
@@ -744,22 +1031,43 @@ def main(argv=None):
     work_clone = ensure_work_clone(args.repo, work_clone)
     project_dir = (work_clone / args.project_subdir).resolve()
 
+    # Scrub these absolute paths from recorded `reason` strings (committed data
+    # must be machine-independent). More may be added per pipeline below.
+    _REDACT_PATHS.clear()
+    _REDACT_PATHS.update({str(work_clone), str(project_dir)})
+
     pipeline = args.pipeline
     if pipeline == "auto":
         pipeline = detect_pipeline(project_dir)
-    if pipeline not in ("verus", "aeneas"):
+    if pipeline not in ("verus", "aeneas", "leanblueprint"):
         # `lean` can be requested or auto-detected, but extract is only wired for
-        # verus/aeneas. Fail fast with a clear message instead of a late,
-        # per-sample `extract_failed`. Lean projects are sampled via `aeneas`.
+        # verus/aeneas/leanblueprint. Fail fast with a clear message instead of a
+        # late, per-sample `extract_failed`. Charon/Aeneas Lean projects are
+        # sampled via `aeneas`; blueprint projects via `leanblueprint`.
         print(
-            f"[error] --pipeline {pipeline} is not supported (only verus/aeneas; "
-            f"Lean projects use --pipeline aeneas).",
+            f"[error] --pipeline {pipeline} is not supported (verus/aeneas/leanblueprint; "
+            f"Charon-based Lean projects use --pipeline aeneas).",
             file=sys.stderr,
         )
         return 2
     print(f"[pipeline] {pipeline}  project={project_dir}")
     if pipeline == "aeneas" and args.skip_verify:
         print("[warn] --skip-verify is ignored for aeneas (probe-aeneas does not forward it)")
+    if pipeline == "leanblueprint":
+        # probe-lean is Lean-version-specific; select the matching binary per
+        # sample via a managed PATH prefix (see leanblueprint_setup). Resolve the
+        # binary directory BEFORE prepending, so we find the user's real install.
+        if args.probe_lean_dir is None:
+            which = shutil.which("probe-lean")
+            args.probe_lean_dir = Path(which).resolve().parent if which else None
+        managed = work_clone.parent / f".vph-probe-lean-bin-{name}"
+        managed.mkdir(parents=True, exist_ok=True)
+        _LEANBP_STATE.clear()
+        _LEANBP_STATE["managed_bin"] = managed
+        os.environ["PATH"] = f"{managed}{os.pathsep}{os.environ.get('PATH', '')}"
+        if args.probe_lean_dir:
+            _REDACT_PATHS.add(str(args.probe_lean_dir))  # setup_failed reasons cite this
+        print(f"[leanblueprint] probe-lean selected per sample from {args.probe_lean_dir}")
 
     anchor_idx = WEEKDAYS.index(args.anchor_day)
     explicit = bool(args.commit)
@@ -793,7 +1101,11 @@ def main(argv=None):
     all_shas, ok_shas = load_recorded(jsonl) if args.resume else (set(), set())
 
     tool_versions = {}
-    for pl, binp in (("verus", args.probe_verus), ("aeneas", args.probe_aeneas)):
+    for pl, binp in (
+        ("verus", args.probe_verus),
+        ("aeneas", args.probe_aeneas),
+        ("leanblueprint", args.probe_leanblueprint),
+    ):
         if pl == pipeline:
             code, out = run([binp, "--version"])
             tool_versions[pl] = out.strip().splitlines()[0] if out else ""
@@ -822,7 +1134,11 @@ def main(argv=None):
             # Default the tool from the pipeline so failure records stay
             # consistent (not blank `tool` with a populated `tool_version`);
             # a successful extract overwrites this from the envelope.
-            "tool": {"verus": "probe-verus", "aeneas": "probe-aeneas"}.get(pipeline, ""),
+            "tool": {
+                "verus": "probe-verus",
+                "aeneas": "probe-aeneas",
+                "leanblueprint": "probe-leanblueprint",
+            }.get(pipeline, ""),
             "tool_version": tool_versions.get(pipeline, ""),
             "status": "",
             "reason": "",
@@ -840,6 +1156,10 @@ def main(argv=None):
                 # caches -- a broad ``git clean`` would also delete gitignored
                 # build outputs (e.g. *_Template.lean).
                 lean_clear_extract_cache(project_dir)
+            elif pipeline == "leanblueprint":
+                # Drop the previous sample's Verso render so this commit's
+                # blueprint is rendered fresh (see the function docstring).
+                leanblueprint_clear_render_cache(project_dir)
         except RuntimeError as e:
             record["status"] = "checkout_failed"
             record["reason"] = str(e).splitlines()[-1][:300]
@@ -861,6 +1181,17 @@ def main(argv=None):
                 continue
         elif pipeline == "aeneas":
             lean_prepare(project_dir)
+        elif pipeline == "leanblueprint":
+            lean_prepare(project_dir, args.dep_cache_dir, _LEANBP_STATE)
+            setup_reason = leanblueprint_setup(project_dir, args, _LEANBP_STATE)
+            if setup_reason:
+                record["status"] = "setup_failed"
+                record["reason"] = setup_reason[:300]
+                record["duration_sec"] = round(time.time() - started, 1)
+                append_record(jsonl, csv_path, record)
+                failed += 1
+                print(f"     {record['status']}: {record['reason']}")
+                continue
 
         # Freshness anchor: only JSON written by THIS extract counts (excludes
         # any committed .verilib JSON that `git checkout` just restored).
@@ -894,6 +1225,43 @@ def main(argv=None):
             append_record(jsonl, csv_path, record)
             failed += 1
             print(f"     {record['status']}: {record['reason']}")
+            continue
+
+        if pipeline == "leanblueprint":
+            metrics = count_blueprint(env)
+            for k in BLUEPRINT_METRIC_KEYS:
+                record[f"bp_{k}"] = metrics[k]
+            # >=1 node means the blueprint graph was read; 0 nodes means no graph
+            # (a preview-only manifest or a failed render) -- a visible gap, not a
+            # real "0 formalized" data point.
+            if metrics["nodes_total"] > 0:
+                record["status"] = "ok"
+                record["reason"] = "; ".join(metrics["warnings"])
+                if code not in (0, None):
+                    record["reason"] = (record["reason"] + f"; extract exit={code}").strip("; ")
+                processed += 1
+            else:
+                record["status"] = "verify_error"
+                record["reason"] = (
+                    f"blueprint produced 0 nodes (exit={code}); "
+                    "likely no graph render / preview-only manifest"
+                )
+                failed += 1
+            append_record(jsonl, csv_path, record)
+            # Snapshot the freshly-built deps so the next sample/run with this
+            # (toolchain, manifest) restores instead of recompiling (idempotent).
+            if (
+                args.dep_cache_dir
+                and record["status"] == "ok"
+                and _LEANBP_STATE.get("dep_cache_key")
+            ):
+                save_dep_cache(project_dir, args.dep_cache_dir, _LEANBP_STATE["dep_cache_key"])
+            print(
+                f"     {record['status']}: nodes={metrics['nodes_total']} "
+                f"def_formalized={metrics['def_formalized']} "
+                f"thm_formalized={metrics['thm_formalized']} "
+                f"thm_proved={metrics['thm_proved_confirmed']} ({record['duration_sec']}s)"
+            )
             continue
 
         metrics = count_colors(env)

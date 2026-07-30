@@ -82,3 +82,123 @@ def test_main_png_when_converter_available(tmp_path):
     p.write_text(json.dumps(_ok("2026-01-02")) + "\n")
     assert pp.main([str(p), "--png"]) == 0
     assert (tmp_path / "burnup.png").is_file()
+
+
+def _bp(date, **over):
+    rec = {
+        "status": "ok",
+        "sample_date": date,
+        "repo": "secure-messaging",
+        "pipeline": "leanblueprint",
+        "bp_def_total": 58,
+        "bp_def_formalized": 29,
+        "bp_thm_total": 56,
+        "bp_thm_formalized": 9,
+        "bp_thm_proved": 9,
+        "bp_thm_proved_confirmed": 8,
+    }
+    rec.update(over)
+    return rec
+
+
+def test_blueprint_two_panels_and_legends():
+    ok = [_bp("2026-06-17", bp_thm_formalized=4), _bp("2026-07-29")]
+    svg = pp.blueprint_svg(ok, "secure-messaging", "sub")
+    # Two stacked panels (nested svgs) + the outer wrapper.
+    assert svg.count("<svg") == 3
+    assert "definitions" in svg and "theorems" in svg
+    # Blueprint terminology, not colour-pipeline terms.
+    assert "formalized" in svg and ">proved</text>" in svg
+    assert "probe-lean-confirmed" not in svg  # kept out of the chart; it's in the docs
+    assert "tracked (ceiling)" not in svg
+
+
+def test_blueprint_mode_autodetected_from_pipeline(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps(_bp("2026-07-29")) + "\n")
+    assert pp.main([str(p)]) == 0
+    svg = (tmp_path / "burnup.svg").read_text()
+    assert "— definitions" in svg and "— theorems" in svg
+
+
+def test_load_records_coerces_blueprint_fields(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps({"status": "ok", "bp_def_total": "58", "bp_thm_proved": ""}) + "\n")
+    (rec,) = pp.load_records(p)
+    assert rec["bp_def_total"] == 58 and rec["bp_thm_proved"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# Combined-atoms (--atoms) chart
+# --------------------------------------------------------------------------- #
+def _bpa(date, **over):
+    """A leanblueprint record with the per-node proof-status columns populated."""
+    rec = _bp(date)
+    rec.update(
+        {
+            "bp_def_verified": 20,
+            "bp_def_trusted": 0,
+            "bp_def_in_progress": 0,
+            "bp_def_failed": 0,
+            "bp_def_unrealized": 1,
+            "bp_thm_verified": 8,
+            "bp_thm_trusted": 0,
+            "bp_thm_in_progress": 1,
+            "bp_thm_failed": 0,
+            "bp_thm_unrealized": 0,
+        }
+    )
+    rec.update(over)
+    return rec
+
+
+def test_combined_atoms_single_panel_and_fc_aligned_legend():
+    ok = [_bpa("2026-06-24", bp_thm_verified=4), _bpa("2026-07-22")]
+    svg, warns = pp.combined_atoms_svg(ok, "secure-messaging", "sub", show_unspecified=True)
+    assert warns == []
+    assert svg.count("<svg") == 1  # one panel, not two
+    assert "combined atoms" in svg
+    # Band names match the FC colour burn-up vocabulary.
+    assert "tracked (ceiling)" in svg
+    assert "verified + trusted" in svg
+    assert "in-progress (sorry/assume)" in svg
+    assert ">failed</text>" in svg
+    assert "unspecified (no statement)" in svg
+    # The unit stays explicit via the y-axis label (not the FC "atom count").
+    assert "blueprint nodes" in svg
+
+
+def test_combined_atoms_nesting_violation_warns_and_stamps():
+    # verified impossibly large -> verified+trusted exceeds tracked.
+    ok = [_bpa("2026-07-22", bp_def_verified=200)]
+    svg, warns = pp.combined_atoms_svg(ok, "t", "s")
+    assert warns and "nesting violated" in warns[0]
+    assert "⚠" in svg  # rendered honestly with a stamped warning, not clamped
+
+
+def test_atoms_wrong_pipeline_errors(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps(_ok("2026-01-02")) + "\n")  # colour pipeline record
+    assert pp.main([str(p), "--atoms"]) == 2
+
+
+def test_atoms_refuses_history_missing_columns(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps(_bp("2026-07-22")) + "\n")  # old leanblueprint row, no bp_*_verified
+    assert pp.main([str(p), "--atoms"]) == 2  # must not silently render zeros
+    assert not (tmp_path / "burnup-atoms.svg").exists()
+
+
+def test_atoms_output_filename_distinct(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps(_bpa("2026-07-22")) + "\n")
+    assert pp.main([str(p), "--atoms"]) == 0
+    assert (tmp_path / "burnup-atoms.svg").is_file()
+    assert not (tmp_path / "burnup.svg").exists()  # never overwrites the two-panel chart
+
+
+def test_atoms_strict_exits_nonzero_on_violation(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps(_bpa("2026-07-22", bp_def_verified=200)) + "\n")
+    assert pp.main([str(p), "--atoms"]) == 0  # still renders (warning only)
+    assert pp.main([str(p), "--atoms", "--strict"]) == 3  # strict escalates to nonzero

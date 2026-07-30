@@ -14,6 +14,11 @@ adds the doc's ``in-progress`` atom status (``yellow``: an incomplete proof,
 sorry / assume) as its own curve, and ``--unspecified`` adds ``white`` (tracked
 but no spec written yet). These are two distinct states; the gap conflates them.
 
+For a **leanblueprint** history (``pipeline == leanblueprint``) it instead draws
+two stacked panels mirroring the published blueprint site — Definitions (total +
+formalized) and Theorems (total + formalized + proved), where "proved" is the
+probe-lean-confirmed count. The mode is auto-detected from the records.
+
 Only ``status == ok`` samples are plotted; gaps (verify_error, timeout, …) are
 skipped, matching how the frontier chart is defined.
 
@@ -41,6 +46,9 @@ COL = {
     "translated": "#2E79B5",  # blue — Aeneas intermediate
     "in_progress": "#E8833A",  # amber — in-progress (yellow: sorry / assume)
     "unspecified": "#B08D57",  # tan — tracked but no spec written yet (white)
+    "failed": "#C0392B",  # red — elaboration error
+    "formalized": "#2E79B5",  # blue — blueprint statement axis (Lean stated)
+    "proved": "#1F8A65",  # green — blueprint proof axis (sorry-free, confirmed)
     "axis": "#999999",
     "grid": "#E4E4E422",
     "text": "#333333",
@@ -50,22 +58,50 @@ COL = {
 INT_FIELDS = (
     "grey white red yellow light_green dark_green purple exec_total "
     "dot_red dot_yellow dot_green art_total tracked verified verified_trusted "
-    "translated"
+    "translated "
+    # probe-leanblueprint two-axis metrics (blank -> 0 for colour pipelines)
+    "bp_nodes_total bp_nodes_bound bp_nodes_planned bp_nodes_decl_missing "
+    "bp_def_total bp_def_formalized "
+    "bp_thm_total bp_thm_formalized bp_thm_proved bp_thm_proved_confirmed "
+    # probe-lean proof-status partition over the formalized nodes (--atoms mode)
+    "bp_def_verified bp_def_trusted bp_def_in_progress bp_def_failed bp_def_unrealized "
+    "bp_thm_verified bp_thm_trusted bp_thm_in_progress bp_thm_failed bp_thm_unrealized"
 ).split()
 
+# Fields the combined-atoms (--atoms) chart needs. If a plotted row lacks these
+# (an old history predating the columns), we refuse rather than silently render
+# them as zero via the coercion in load_records.
+ATOMS_FIELDS = [
+    f"bp_{k}_{b}"
+    for k in ("def", "thm")
+    for b in ("total", "formalized", "verified", "trusted", "in_progress", "failed", "unrealized")
+]
 
-def load_records(path: Path) -> list[dict]:
-    """Load records from JSONL or CSV, coercing metric fields to int."""
+
+def _read_rows(path: Path) -> list[dict]:
+    """Read raw records (no int coercion), preserving which keys are present."""
     if path.suffix == ".csv":
         with path.open(newline="") as f:
-            rows = list(csvmod.DictReader(f))
-    else:
-        rows = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+            return list(csvmod.DictReader(f))
+    return [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+
+
+def _coerce_ints(rows: list[dict]) -> list[dict]:
     for r in rows:
         for k in INT_FIELDS:
             v = r.get(k, "")
             r[k] = int(v) if str(v).strip() not in ("", "None") else 0
     return rows
+
+
+def load_records(path: Path) -> list[dict]:
+    """Load records from JSONL or CSV, coercing metric fields to int."""
+    return _coerce_ints(_read_rows(path))
+
+
+def _present(row: dict, key: str) -> bool:
+    """True if ``key`` was actually populated in the raw row (not absent/blank)."""
+    return key in row and str(row.get(key)).strip() not in ("", "None")
 
 
 def esc(s: str) -> str:
@@ -204,6 +240,35 @@ class Plot:
             f"  {body}\n</svg>\n"
         )
 
+    def nested_svg(self, x: float = 0, y: float = 0) -> str:
+        """This panel as a nested ``<svg>`` at (x, y), for stacking panels in one
+        image. Its self-contained 0..W/0..H coordinate box is independent, so a
+        parent ``<svg>`` just positions it; the transparent background lets the
+        parent's fill show through."""
+        body = "\n  ".join(self.parts)
+        return (
+            f'<svg x="{x}" y="{y}" width="{self.W}" height="{self.H}" '
+            f'viewBox="0 0 {self.W} {self.H}">\n  {body}\n</svg>'
+        )
+
+
+def _compose_panels(panels: list[Plot]) -> str:
+    """Stack panels vertically into one self-contained SVG."""
+    w = panels[0].W
+    h = sum(p.H for p in panels)
+    nested, oy = [], 0.0
+    for p in panels:
+        nested.append(p.nested_svg(0, oy))
+        oy += p.H
+    body = "\n  ".join(nested)
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '
+        f'viewBox="0 0 {w} {h}" '
+        f'font-family="system-ui, -apple-system, Segoe UI, sans-serif">\n'
+        f'  <rect width="{w}" height="{h}" fill="#FFFFFF" />\n'
+        f"  {body}\n</svg>\n"
+    )
+
 
 def burnup_svg(ok, title, subtitle, show_in_progress=False, show_unspecified=False) -> str:
     cats = [r["sample_date"] for r in ok]
@@ -247,6 +312,121 @@ def burnup_svg(ok, title, subtitle, show_in_progress=False, show_unspecified=Fal
         legend.append(("unspecified (no spec)", COL["unspecified"]))
     plot.legend(legend)
     return plot.svg()
+
+
+def blueprint_svg(ok, base_title, subtitle) -> str:
+    """Two stacked panels for a leanblueprint history: Definitions (total +
+    formalized) and Theorems (total + formalized + proved), mirroring the
+    published site. "Proved" is the probe-lean-confirmed count (bp_thm_proved_confirmed).
+    A shared y-ceiling keeps the two panels visually comparable."""
+    cats = [r["sample_date"] for r in ok]
+    def_total = [r["bp_def_total"] for r in ok]
+    def_formalized = [r["bp_def_formalized"] for r in ok]
+    thm_total = [r["bp_thm_total"] for r in ok]
+    thm_formalized = [r["bp_thm_formalized"] for r in ok]
+    thm_proved = [r["bp_thm_proved_confirmed"] for r in ok]
+
+    y_max = nice_ceiling(
+        max((max(def_total) if def_total else 0), (max(thm_total) if thm_total else 0))
+    )
+
+    defs = Plot(cats, y_max, f"{base_title} — definitions", subtitle, "blueprint nodes")
+    defs.axes()
+    defs.area(def_total, COL["tracked"], 0.08)
+    defs.area(def_formalized, COL["formalized"], 0.14)
+    defs.line(def_total, COL["tracked"])
+    defs.line(def_formalized, COL["formalized"])
+    defs.legend([("total (planned)", COL["tracked"]), ("formalized", COL["formalized"])])
+
+    thms = Plot(cats, y_max, f"{base_title} — theorems", "", "blueprint nodes")
+    thms.axes()
+    thms.area(thm_total, COL["tracked"], 0.08)
+    thms.area(thm_formalized, COL["formalized"], 0.14)
+    thms.area(thm_proved, COL["proved"], 0.18)
+    thms.line(thm_total, COL["tracked"])
+    thms.line(thm_formalized, COL["formalized"])
+    thms.line(thm_proved, COL["proved"])
+    thms.legend(
+        [
+            ("total (planned)", COL["tracked"]),
+            ("formalized", COL["formalized"]),
+            ("proved", COL["proved"]),
+        ]
+    )
+    return _compose_panels([defs, thms])
+
+
+def combined_atoms_svg(ok, base_title, subtitle, show_unspecified=False):
+    """One panel putting definitions and theorems on a single FC-style chart,
+    counting every blueprint node as an atom.
+
+    Frontiers (nested): ``tracked >= verified+trusted >= verified``. Status curves
+    (zero-based): ``in-progress`` (probe-lean ``unverified``: a sorry), ``failed``
+    (probe-lean elaboration error), and optionally ``unspecified`` (no Lean
+    statement). The completion frontier is the probe-lean status of each node's
+    bound atoms (``verified`` = green = verified + transitively-verified;
+    ``+trusted`` = axiom/external); the ceiling and the unspecified split come
+    from the blueprint statement axis. Returns ``(svg, warnings)``; warnings flag
+    any sample where the nesting is violated (rendered honestly, not clamped)."""
+    cats = [r["sample_date"] for r in ok]
+    tracked = [r["bp_def_total"] + r["bp_thm_total"] for r in ok]
+    verified = [r["bp_def_verified"] + r["bp_thm_verified"] for r in ok]
+    verified_trusted = [
+        v + r["bp_def_trusted"] + r["bp_thm_trusted"] for v, r in zip(verified, ok, strict=True)
+    ]
+    in_progress = [r["bp_def_in_progress"] + r["bp_thm_in_progress"] for r in ok]
+    failed = [r["bp_def_failed"] + r["bp_thm_failed"] for r in ok]
+    unspecified = [
+        (r["bp_def_total"] - r["bp_def_formalized"]) + (r["bp_thm_total"] - r["bp_thm_formalized"])
+        for r in ok
+    ]
+
+    warnings: list[str] = []
+    for i, d in enumerate(cats):
+        if not (verified[i] <= verified_trusted[i] <= tracked[i]):
+            warnings.append(
+                f"{d}: frontier nesting violated "
+                f"(verified {verified[i]} <= verified+trusted {verified_trusted[i]} "
+                f"<= tracked {tracked[i]})"
+            )
+        for name, series in (("in-progress", in_progress), ("failed", failed)):
+            if series[i] > tracked[i]:
+                warnings.append(f"{d}: {name} ({series[i]}) exceeds tracked ({tracked[i]})")
+
+    y_max = nice_ceiling(max(tracked) if tracked else 0)
+    plot = Plot(cats, y_max, f"{base_title} — combined atoms", subtitle, "blueprint nodes")
+    plot.axes()
+    # Nested frontiers, largest area first.
+    plot.area(tracked, COL["tracked"], 0.08)
+    plot.area(verified_trusted, COL["verified_trusted"], 0.12)
+    plot.area(verified, COL["verified"], 0.16)
+    plot.line(tracked, COL["tracked"])
+    plot.line(verified_trusted, COL["verified_trusted"])
+    plot.line(verified, COL["verified"])
+    # Zero-based status counts (distinct states, not a conflated gap).
+    plot.line(in_progress, COL["in_progress"])
+    plot.line(failed, COL["failed"])
+    # Band names match the FC colour burn-up (burnup_svg) so the two charts read
+    # with one vocabulary; the node-vs-atom unit and blueprint-vs-probe-lean
+    # provenance live in the subtitle and the "How to read" docs.
+    legend = [
+        ("tracked (ceiling)", COL["tracked"]),
+        ("verified + trusted", COL["verified_trusted"]),
+        ("verified", COL["verified"]),
+        ("in-progress (sorry/assume)", COL["in_progress"]),
+        ("failed", COL["failed"]),
+    ]
+    if show_unspecified:
+        plot.line(unspecified, COL["unspecified"])
+        legend.append(("unspecified (no statement)", COL["unspecified"]))
+    plot.legend(legend)
+    # Stamp nesting warnings into the image rather than clamping the bands.
+    for j, w in enumerate(warnings[:3]):
+        yy = plot.H - 30 + j * 12
+        plot.parts.append(
+            f'<text x="{plot.ml}" y="{yy}" font-size="10" fill="{COL["failed"]}">⚠ {esc(w)}</text>'
+        )
+    return plot.svg(), warnings
 
 
 # SVG->PNG converters tried in order (first on PATH wins). The SVG is always the
@@ -322,6 +502,20 @@ def parse_args(argv):
         "(tracked but no spec written yet). Distinct from --in-progress.",
     )
     p.add_argument(
+        "--atoms",
+        action="store_true",
+        help="leanblueprint only: render the combined single-panel chart "
+        "(definitions + theorems as one atom pool, FC-aligned: tracked / "
+        "verified+trusted / verified, plus in-progress and failed). Writes "
+        "burnup-atoms.svg; --unspecified adds the no-statement curve.",
+    )
+    p.add_argument(
+        "--strict",
+        action="store_true",
+        help="With --atoms, exit non-zero if any sample violates the frontier "
+        "nesting (the warning is stamped into the SVG either way).",
+    )
+    p.add_argument(
         "--png",
         action="store_true",
         help="Also write a PNG alongside the SVG (needs rsvg-convert, "
@@ -352,18 +546,73 @@ def main(argv=None) -> int:
         + f" · source: {args.input.name}"
     )
 
-    title = args.title or f"{repo} — verification burn-up"
-    svg = burnup_svg(
-        ok, title, subtitle, show_in_progress=args.in_progress, show_unspecified=args.unspecified
-    )
+    pipeline = ok[0].get("pipeline")
+    if args.atoms and pipeline != "leanblueprint":
+        print(
+            f"[error] --atoms is a leanblueprint-only chart; pipeline is {pipeline!r}.",
+            file=sys.stderr,
+        )
+        return 2
+
+    atoms_warnings: list[str] = []
+    if pipeline == "leanblueprint" and args.atoms:
+        # Refuse to plot silent-zero curves on a history predating the columns:
+        # check the raw rows (pre-coercion), so absent != 0.
+        raw_ok = [r for r in _read_rows(args.input) if r.get("status") == "ok"]
+        missing = sorted(
+            r.get("sample_date", "?")
+            for r in raw_ok
+            if not all(_present(r, f) for f in ATOMS_FIELDS)
+        )
+        if missing:
+            print(
+                "[error] --atoms needs the per-node proof-status columns "
+                f"(bp_def_verified, bp_thm_verified, ...), absent for samples: "
+                f"{', '.join(missing)}. Re-extract this history to populate them.",
+                file=sys.stderr,
+            )
+            return 2
+        if args.in_progress:
+            print(
+                "[note] in-progress is always drawn in --atoms; --in-progress ignored.",
+                file=sys.stderr,
+            )
+        # Names match the FC chart; the differing unit/provenance goes here so it
+        # is always on the chart (see "How to read the charts" in the README).
+        atoms_subtitle = subtitle + " · unit: blueprint node · proof status: probe-lean"
+        svg, atoms_warnings = combined_atoms_svg(
+            ok, args.title or repo, atoms_subtitle, show_unspecified=args.unspecified
+        )
+    elif pipeline == "leanblueprint":
+        if args.in_progress or args.unspecified:
+            print(
+                "[note] --in-progress/--unspecified are colour-pipeline options; "
+                "ignored for leanblueprint (use --atoms for the combined chart).",
+                file=sys.stderr,
+            )
+        svg = blueprint_svg(ok, args.title or repo, subtitle)
+    else:
+        title = args.title or f"{repo} — verification burn-up"
+        svg = burnup_svg(
+            ok,
+            title,
+            subtitle,
+            show_in_progress=args.in_progress,
+            show_unspecified=args.unspecified,
+        )
     # Default alongside the input: data/<name>/progress.jsonl -> .../burnup.svg.
-    # (Pass -o for variants like burnup-inprogress.svg so they don't collide.)
-    default_stem = "burnup" if args.input.stem == "progress" else f"{args.input.stem}-burnup"
+    # --atoms writes a distinct stem so it never overwrites the two-panel chart.
+    kind = "burnup-atoms" if args.atoms else "burnup"
+    default_stem = kind if args.input.stem == "progress" else f"{args.input.stem}-{kind}"
     out = args.output or args.input.with_name(f"{default_stem}.svg")
     out.write_text(svg)
     print(f"wrote {out}")
     if args.png:
         svg_to_png(out, out.with_suffix(".png"), args.png_scale)
+    for w in atoms_warnings:
+        print(f"[warn] {w}", file=sys.stderr)
+    if atoms_warnings and args.strict:
+        return 3
     return 0
 
 

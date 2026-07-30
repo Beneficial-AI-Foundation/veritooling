@@ -135,3 +135,240 @@ def test_append_record_upserts_by_commit(tmp_path):
     lines = csv_path.read_text().splitlines()
     assert len(lines) == 3
     assert "aaa" in lines[1] and "bbb" in lines[2]
+
+
+def test_detect_leanblueprint_from_verso_lakefile(tmp_path):
+    (tmp_path / "lean-toolchain").write_text("leanprover/lean4:v4.30.0")
+    (tmp_path / "lakefile.toml").write_text('[[require]]\nname = "versoBlueprint"\n')
+    assert ph.detect_pipeline(tmp_path) == "leanblueprint"
+
+
+def test_detect_leanblueprint_from_docs_lakefile(tmp_path):
+    # versoBlueprint may be declared in the docs/ subproject, not the root.
+    (tmp_path / "lean-toolchain").write_text("leanprover/lean4:v4.30.0")
+    (tmp_path / "lakefile.toml").write_text("# plain lean project\n")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "lakefile.lean").write_text('require versoBlueprint from git "..."')
+    assert ph.detect_pipeline(tmp_path) == "leanblueprint"
+
+
+def test_detect_leanblueprint_from_massot_tree(tmp_path):
+    (tmp_path / "lakefile.toml").write_text("# plain lean project\n")
+    (tmp_path / "blueprint" / "src").mkdir(parents=True)
+    (tmp_path / "blueprint" / "src" / "web.tex").write_text("\\documentclass{article}")
+    assert ph.detect_pipeline(tmp_path) == "leanblueprint"
+
+
+def test_plain_lean_project_is_not_leanblueprint(tmp_path):
+    # No versoBlueprint / no Massot tree -> the generic `lean` bucket, not blueprint.
+    (tmp_path / "lean-toolchain").write_text("leanprover/lean4:v4.30.0")
+    (tmp_path / "lakefile.toml").write_text('[[require]]\nname = "mathlib"\n')
+    assert ph.detect_pipeline(tmp_path) == "lean"
+
+
+def test_blueprint_fields_in_record_schema():
+    # bp_* columns exist and blank_metrics initialises them blank (so a colour
+    # pipeline leaves them empty, mirroring `translated`).
+    assert "bp_thm_proved_confirmed" in ph.RECORD_FIELDS
+    blanks = ph.blank_metrics()
+    assert all(blanks[f] == "" for f in ph.BLUEPRINT_FIELDS)
+    assert ph.BLUEPRINT_FIELDS == [f"bp_{k}" for k in ph.BLUEPRINT_METRIC_KEYS]
+
+
+def test_lean_version_from_toolchain():
+    assert ph._lean_version_from_toolchain("leanprover/lean4:v4.30.0") == "v4.30.0"
+    assert ph._lean_version_from_toolchain("leanprover/lean4:v4.29.0-rc4") == "v4.29.0-rc4"
+    assert ph._lean_version_from_toolchain("") is None
+    assert ph._lean_version_from_toolchain(None) is None
+
+
+def test_leanblueprint_setup_selects_matching_probe_lean(tmp_path):
+    import types
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "lean-toolchain").write_text("leanprover/lean4:v4.30.0")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    target = bindir / "probe-lean-v4.30.0"
+    target.write_text("#!/bin/sh\n")
+    target.chmod(0o755)
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    args = types.SimpleNamespace(probe_lean_dir=bindir)
+    state = {"managed_bin": managed}
+
+    assert ph.leanblueprint_setup(project, args, state) is None
+    link = managed / "probe-lean"
+    assert link.is_symlink() and link.resolve() == target.resolve()
+    assert state["probe_lean_version"] == "v4.30.0"
+
+
+def test_leanblueprint_setup_missing_version_reports(tmp_path):
+    import types
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "lean-toolchain").write_text("leanprover/lean4:v4.99.0")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    args = types.SimpleNamespace(probe_lean_dir=bindir)
+
+    reason = ph.leanblueprint_setup(project, args, {"managed_bin": managed})
+    assert reason and "v4.99.0" in reason
+    assert not (managed / "probe-lean").exists()
+
+
+def test_leanblueprint_setup_actionable_messages(tmp_path):
+    import types
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    # No lean-toolchain file -> names the missing file, not "tc=None".
+    r1 = ph.leanblueprint_setup(
+        project, types.SimpleNamespace(probe_lean_dir=tmp_path), {"managed_bin": managed}
+    )
+    assert "lean-toolchain" in r1 and "None" not in r1
+    # Toolchain present but no probe-lean dir -> points at --probe-lean-dir.
+    (project / "lean-toolchain").write_text("leanprover/lean4:v4.30.0")
+    r2 = ph.leanblueprint_setup(
+        project, types.SimpleNamespace(probe_lean_dir=None), {"managed_bin": managed}
+    )
+    assert "--probe-lean-dir" in r2 and "None" not in r2
+
+
+def test_dep_cache_key_depends_on_toolchain_and_manifest(tmp_path):
+    (tmp_path / "lake-manifest.json").write_text('{"packages":[{"name":"VCVio","rev":"abc"}]}')
+    k1 = ph._dep_cache_key(tmp_path, "leanprover/lean4:v4.30.0")
+    k2 = ph._dep_cache_key(tmp_path, "leanprover/lean4:v4.29.0")  # different toolchain
+    (tmp_path / "lake-manifest.json").write_text('{"packages":[{"name":"VCVio","rev":"def"}]}')
+    k3 = ph._dep_cache_key(tmp_path, "leanprover/lean4:v4.30.0")  # different manifest
+    assert k1 != k2 and k1 != k3 and k2 != k3
+    assert k1.startswith("v4.30.0-")  # readable toolchain prefix
+
+
+def test_dep_cache_key_none_without_manifest(tmp_path):
+    # No lake-manifest.json -> refuse to cache (keying on toolchain alone would
+    # collide different dependency sets on the same Lean version).
+    assert ph._dep_cache_key(tmp_path, "leanprover/lean4:v4.30.0") is None
+
+
+def test_dep_cache_save_and_restore_roundtrip(tmp_path):
+    # A fake project with two built dep packages.
+    project = tmp_path / "proj"
+    for dep, name in (("VCVio", "Foo.olean"), ("mathlib", "Bar.olean")):
+        b = project / ".lake" / "packages" / dep / ".lake" / "build" / "lib"
+        b.mkdir(parents=True)
+        (b / name).write_text(f"olean:{dep}")
+    (project / "lake-manifest.json").write_text('{"packages":[]}')
+    cache = tmp_path / "cache"
+    key = ph._dep_cache_key(project, "leanprover/lean4:v4.30.0")
+
+    ph.save_dep_cache(project, cache, key)
+    assert (cache / key / "VCVio" / "build" / "lib" / "Foo.olean").is_file()
+
+    # Wipe the project's dep builds, then restore from cache.
+    shutil.rmtree(project / ".lake" / "packages" / "VCVio" / ".lake" / "build")
+    shutil.rmtree(project / ".lake" / "packages" / "mathlib" / ".lake" / "build")
+    assert ph.restore_dep_cache(project, cache, key) is True
+    restored = project / ".lake" / "packages" / "VCVio" / ".lake" / "build" / "lib" / "Foo.olean"
+    assert restored.is_file() and restored.read_text() == "olean:VCVio"
+
+
+def test_dep_cache_restore_miss_and_save_idempotent(tmp_path):
+    project = tmp_path / "proj"
+    b = project / ".lake" / "packages" / "VCVio" / ".lake" / "build"
+    b.mkdir(parents=True)
+    (b / "x.olean").write_text("v")
+    (project / "lake-manifest.json").write_text("{}")
+    cache = tmp_path / "cache"
+    key = "v4.30.0-deadbeef"
+    assert ph.restore_dep_cache(project, cache, key) is False  # nothing cached yet
+    ph.save_dep_cache(project, cache, key)
+    marker = cache / key / "VCVio" / "build" / "x.olean"
+    assert marker.is_file()
+    before = marker.stat().st_mtime
+    ph.save_dep_cache(project, cache, key)  # idempotent: no re-copy
+    assert marker.stat().st_mtime == before
+
+
+def test_dep_cache_restore_fresh_clone_bails(tmp_path):
+    # Cache populated, but the project has no .lake/packages (fresh clone: dep
+    # sources not fetched). Restore must bail rather than create build-without-
+    # source dirs.
+    cache = tmp_path / "cache"
+    (cache / "v4.30.0-abc" / "VCVio" / "build").mkdir(parents=True)
+    (cache / "v4.30.0-abc" / "VCVio" / "build" / "x.olean").write_text("v")
+    project = tmp_path / "proj"
+    project.mkdir()
+    assert ph.restore_dep_cache(project, cache, "v4.30.0-abc") is False
+    assert not (project / ".lake").exists()  # nothing materialized
+
+
+def test_dep_cache_restore_skips_dep_without_source(tmp_path):
+    # .lake/packages exists but the specific dep's source dir is absent -> skip
+    # that dep (don't restore a build with no source).
+    project = tmp_path / "proj"
+    (project / ".lake" / "packages" / "other").mkdir(parents=True)  # some other pkg source
+    cache = tmp_path / "cache"
+    (cache / "k" / "VCVio" / "build").mkdir(parents=True)
+    (cache / "k" / "VCVio" / "build" / "x.olean").write_text("v")
+    assert ph.restore_dep_cache(project, cache, "k") is False
+    assert not (project / ".lake" / "packages" / "VCVio").exists()
+
+
+def test_verso_blueprint_in_comment_not_detected(tmp_path):
+    # A commented mention of versoBlueprint must not force the leanblueprint pipeline.
+    (tmp_path / "lean-toolchain").write_text("leanprover/lean4:v4.30.0")
+    (tmp_path / "lakefile.toml").write_text(
+        '# this project could use versoBlueprint later\n[[require]]\nname = "mathlib"\n'
+    )
+    assert ph._has_verso_blueprint(tmp_path) is False
+    assert ph.detect_pipeline(tmp_path) == "lean"
+
+
+def test_scrub_paths_and_atomic_write(tmp_path):
+    text = "wrote /tmp/wc/x/y.json under /tmp/wc/x; see /home/u/bin/probe-lean-v9"
+    scrubbed = ph._scrub_paths(text, "/tmp/wc/x", "/tmp/wc", "/home/u/bin")
+    assert "/tmp/wc" not in scrubbed and "/home/u/bin" not in scrubbed
+    assert scrubbed.count("<path>") == 3
+
+    out = tmp_path / "sub" / "f.txt"
+    ph._atomic_write(out, "hello")
+    assert out.read_text() == "hello"
+    assert not list(tmp_path.glob("**/.*.tmp-*"))  # no temp file left behind
+
+
+def test_append_record_scrubs_reason_paths(tmp_path):
+    jsonl, csv_path = tmp_path / "progress.jsonl", tmp_path / "progress.csv"
+    ph._REDACT_PATHS.clear()
+    ph._REDACT_PATHS.add("/tmp/vph-sm")
+    try:
+        ph.append_record(
+            jsonl,
+            csv_path,
+            {
+                "commit": "a",
+                "reason": "no JSON; wrote /tmp/vph-sm/.verilib/x",
+                "status": "extract_failed",
+            },
+        )
+    finally:
+        ph._REDACT_PATHS.clear()
+    rec = ph._read_jsonl(jsonl)[0]
+    assert "/tmp/vph-sm" not in rec["reason"] and "<path>" in rec["reason"]
+
+
+def test_leanblueprint_clear_render_cache(tmp_path):
+    site = tmp_path / "_out" / "site" / "html-multi"
+    site.mkdir(parents=True)
+    (site / "blueprint-manifest.json").write_text("{}")
+    docs_site = tmp_path / "docs" / "_out" / "site"
+    docs_site.mkdir(parents=True)
+    ph.leanblueprint_clear_render_cache(tmp_path)
+    assert not (tmp_path / "_out" / "site").exists()
+    assert not docs_site.exists()
