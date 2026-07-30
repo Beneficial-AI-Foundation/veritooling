@@ -13,6 +13,8 @@ frontier gap (white + yellow + red) is left implicit — but ``--in-progress``
 adds the doc's ``in-progress`` atom status (``yellow``: an incomplete proof,
 sorry / assume) as its own curve, and ``--unspecified`` adds ``white`` (tracked
 but no spec written yet). These are two distinct states; the gap conflates them.
+``red`` (a failed verification) is drawn automatically whenever any sample has
+one — like ``translated``, it needs no flag, and stays off when nothing failed.
 
 For a **leanblueprint** history (``pipeline == leanblueprint``) it instead draws
 two stacked panels mirroring the published blueprint site — Definitions (total +
@@ -310,6 +312,13 @@ def burnup_svg(ok, title, subtitle, show_in_progress=False, show_unspecified=Fal
         white = [r["white"] for r in ok]
         plot.line(white, COL["unspecified"])
         legend.append(("unspecified (no spec)", COL["unspecified"]))
+    # `red` (a failed verification) is auto-drawn when present, like `translated`:
+    # it is a rare but critical status that should never sit hidden in the gap, so
+    # it needs no opt-in flag, and stays absent (no clutter) when nothing failed.
+    red = [r["red"] for r in ok]
+    if any(red):
+        plot.line(red, COL["failed"])
+        legend.append(("failed", COL["failed"]))
     plot.legend(legend)
     return plot.svg()
 

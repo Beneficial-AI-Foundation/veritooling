@@ -209,10 +209,12 @@ Unit: a Rust `exec` atom.
 - **verified** — proved with no trust reliance (green).
 - **in-progress** (`--in-progress`) — `yellow`: an incomplete proof (sorry/assume).
 - **unspecified** (`--unspecified`) — `white`: tracked, no spec written yet.
+- **failed** — `red`: a failed verification. Auto-drawn only when some sample has
+  one (like `translated`, no flag); absent means nothing failed.
 - **translated** — Aeneas-only intermediate.
 The gap `tracked − (verified+trusted)` is `white + yellow + red` — do **not**
-read it as the sorry count; `--in-progress`/`--unspecified` split it into real
-counts.
+read it as the sorry count; `--in-progress`/`--unspecified` split out white and
+yellow, and `red` draws itself when present.
 
 **Blueprint two-panel** (`burnup.svg`, leanblueprint — y-axis "blueprint nodes").
 Unit: a blueprint node, split into a Definitions panel and a Theorems panel.

@@ -17,6 +17,7 @@ def _ok(date, **over):
         "translated": 0,
         "yellow": 30,
         "white": 25,
+        "red": 0,
     }
     rec.update(over)
     return rec
@@ -63,6 +64,14 @@ def test_translated_line_only_for_aeneas():
     assert "translated (Aeneas)" not in pp.burnup_svg([_ok("2026-01-02")], "t", "s")
     ok = [_ok("2026-01-02", translated=20)]
     assert "translated (Aeneas)" in pp.burnup_svg(ok, "t", "s")
+
+
+def test_failed_line_auto_drawn_only_when_present():
+    # No failures -> no red curve (no flag, no clutter).
+    assert ">failed<" not in pp.burnup_svg([_ok("2026-01-02", red=0)], "t", "s")
+    # Any red -> the failed curve appears automatically, like `translated`.
+    ok = [_ok("2026-01-02", red=0), _ok("2026-02-06", red=3)]
+    assert ">failed</text>" in pp.burnup_svg(ok, "t", "s")
 
 
 def test_main_default_output_name(tmp_path):
