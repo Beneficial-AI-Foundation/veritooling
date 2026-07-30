@@ -370,9 +370,10 @@ def combined_atoms_svg(ok, base_title, subtitle, show_unspecified=False):
     counting every blueprint node as an atom.
 
     Frontiers (nested): ``tracked >= verified+trusted >= verified``. Status curves
-    (zero-based): ``in-progress`` (probe-lean ``unverified``: a sorry), ``failed``
-    (probe-lean elaboration error), and optionally ``unspecified`` (no Lean
-    statement). The completion frontier is the probe-lean status of each node's
+    (zero-based): ``in-progress`` (probe-lean ``unverified``: a sorry) and
+    ``failed`` (probe-lean elaboration error) are drawn only when present, so a
+    clean history stays uncluttered; ``unspecified`` (no Lean statement) is opt-in
+    via ``show_unspecified``. The completion frontier is the probe-lean status of each node's
     bound atoms (``verified`` = green = verified + transitively-verified;
     ``+trusted`` = axiom/external); the ceiling and the unspecified split come
     from the blueprint statement axis. Returns ``(svg, warnings)``; warnings flag
@@ -412,9 +413,6 @@ def combined_atoms_svg(ok, base_title, subtitle, show_unspecified=False):
     plot.line(tracked, COL["tracked"])
     plot.line(verified_trusted, COL["verified_trusted"])
     plot.line(verified, COL["verified"])
-    # Zero-based status counts (distinct states, not a conflated gap).
-    plot.line(in_progress, COL["in_progress"])
-    plot.line(failed, COL["failed"])
     # Band names match the FC colour burn-up (burnup_svg) so the two charts read
     # with one vocabulary; the node-vs-atom unit and blueprint-vs-probe-lean
     # provenance live in the subtitle and the "How to read" docs.
@@ -422,9 +420,15 @@ def combined_atoms_svg(ok, base_title, subtitle, show_unspecified=False):
         ("tracked (ceiling)", COL["tracked"]),
         ("verified + trusted", COL["verified_trusted"]),
         ("verified", COL["verified"]),
-        ("in-progress (sorry/assume)", COL["in_progress"]),
-        ("failed", COL["failed"]),
     ]
+    # Zero-based status curves, drawn only when present (like `translated` /
+    # `failed` on the colour burn-up) so a clean history stays uncluttered.
+    if any(in_progress):
+        plot.line(in_progress, COL["in_progress"])
+        legend.append(("in-progress (sorry/assume)", COL["in_progress"]))
+    if any(failed):
+        plot.line(failed, COL["failed"])
+        legend.append(("failed", COL["failed"]))
     if show_unspecified:
         plot.line(unspecified, COL["unspecified"])
         legend.append(("unspecified (no statement)", COL["unspecified"]))

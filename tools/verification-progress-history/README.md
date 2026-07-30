@@ -168,8 +168,9 @@ python3 plot_progress.py data/secure-messaging/progress.jsonl --atoms --unspecif
 `--atoms` (leanblueprint only) draws instead a single **combined** panel that
 puts definitions and theorems in one atom pool, using the FC ("Atom statuses and
 colours") vocabulary: nested frontiers `tracked ≥ verified+trusted ≥ verified`,
-plus zero-based `in-progress` (a `sorry`) and `failed` curves; `--unspecified`
-adds the no-Lean-statement curve. The unit is a **blueprint node** (stated in the
+plus zero-based `in-progress` (a `sorry`) and `failed` curves drawn only when
+present (a clean history stays uncluttered); `--unspecified` adds the
+no-Lean-statement curve. The unit is a **blueprint node** (stated in the
 subtitle), and the ceiling is a per-sample inventory — it can go down as well as up,
 so this is not a monotonic burn-up. The statement axis (`unspecified` /
 `formalized` ceiling) comes from the blueprint; the proof split
@@ -231,8 +232,8 @@ and the *proof* status from probe-lean (see subtitle):
   incl. `trusted` (axiom/external).
 - **verified** — the subset with no trusted binding (green: probe-lean `verified`
   + `transitively-verified`).
-- **in-progress** — formalized nodes with a `sorry` in a binding.
-- **failed** — formalized nodes with an elaboration error.
+- **in-progress** — formalized nodes with a `sorry` in a binding (drawn when present).
+- **failed** — formalized nodes with an elaboration error (drawn when present).
 - **unspecified** (`--unspecified`) — nodes with no Lean statement yet.
 Because the unit is a node, sorries in code the blueprint does not track are not
 shown (the Scope caveat above).

@@ -162,7 +162,7 @@ def _bpa(date, **over):
 
 
 def test_combined_atoms_single_panel_and_fc_aligned_legend():
-    ok = [_bpa("2026-06-24", bp_thm_verified=4), _bpa("2026-07-22")]
+    ok = [_bpa("2026-06-24", bp_thm_verified=4), _bpa("2026-07-22")]  # thm_in_progress=1
     svg, warns = pp.combined_atoms_svg(ok, "secure-messaging", "sub", show_unspecified=True)
     assert warns == []
     assert svg.count("<svg") == 1  # one panel, not two
@@ -170,11 +170,22 @@ def test_combined_atoms_single_panel_and_fc_aligned_legend():
     # Band names match the FC colour burn-up vocabulary.
     assert "tracked (ceiling)" in svg
     assert "verified + trusted" in svg
-    assert "in-progress (sorry/assume)" in svg
-    assert ">failed</text>" in svg
+    assert "in-progress (sorry/assume)" in svg  # present -> drawn
     assert "unspecified (no statement)" in svg
     # The unit stays explicit via the y-axis label (not the FC "atom count").
     assert "blueprint nodes" in svg
+
+
+def test_combined_atoms_status_curves_only_when_present():
+    # A fully clean history: no in-progress, no failed -> neither curve is drawn.
+    clean = [_bpa("2026-07-22", bp_thm_in_progress=0, bp_def_failed=0, bp_thm_failed=0)]
+    svg, _ = pp.combined_atoms_svg(clean, "t", "s")
+    assert "in-progress (sorry/assume)" not in svg
+    assert ">failed</text>" not in svg
+    # A history with a failure -> the failed curve appears automatically.
+    withfail = [_bpa("2026-07-22", bp_def_failed=2)]
+    svg2, _ = pp.combined_atoms_svg(withfail, "t", "s")
+    assert ">failed</text>" in svg2
 
 
 def test_combined_atoms_nesting_violation_warns_and_stamps():
