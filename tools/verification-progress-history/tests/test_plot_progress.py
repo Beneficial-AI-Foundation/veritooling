@@ -303,8 +303,10 @@ def test_lean_combined_single_panel_and_fc_aligned_legend():
     assert warns == []
     assert svg.count("<svg") == 1  # one panel, not two
     assert "— combined" in svg
-    # FC vocabulary, not the lean two-panel terms.
-    assert "tracked (ceiling)" in svg
+    # FC vocabulary, not the lean two-panel terms. The ceiling is probe-lean's
+    # declaration count -- labelled "total", never "tracked" (no tracked number).
+    assert "tracked" not in svg
+    assert ">total</text>" in svg
     assert "verified + trusted" in svg
     assert "without sorry" not in svg and "trust boundary" not in svg
     assert "in-progress (sorry/assume)" in svg  # 5 sorries -> curve drawn

@@ -29,9 +29,11 @@ total is just the declaration count, which grows over time.
 
 ``--combined`` overrides the leanblueprint or lean two-panel chart with a single
 FC-style panel that pools definitions and theorems (unit: blueprint node for
-leanblueprint, declaration for lean): nested ``tracked ≥ verified+trusted ≥
+leanblueprint, declaration for lean): nested ``ceiling ≥ verified+trusted ≥
 verified`` frontiers, plus in-progress / failed / unrealized / unspecified status
-curves drawn when present.
+curves drawn when present. The ceiling is labelled ``tracked`` for leanblueprint
+(the blueprint node set is a genuine tracked total) but ``total`` for plain Lean,
+which is probe-lean-sourced and has no tracked number — only the declaration count.
 
 The mode is auto-detected from the records.
 
@@ -465,29 +467,35 @@ def _combined_plot(
     subtitle,
     unit,
     show_unspecified=False,
+    ceiling_label="tracked (ceiling)",
+    ceiling_word="tracked",
 ):
     """Shared renderer for the single-panel FC chart, over pre-pooled series.
 
     Both the leanblueprint (``combined_svg``, unit = blueprint node) and the plain
     Lean (``lean_combined_svg``, unit = declaration) combined charts feed the same
-    nested frontiers (``tracked >= verified+trusted >= verified``) plus the
+    nested frontiers (ceiling ``>= verified+trusted >= verified``) plus the
     zero-based ``in-progress`` / ``failed`` / ``unrealized`` / ``unspecified``
     status curves through here, so the two read with one vocabulary and differ only
-    in the y-axis unit (stated in ``unit`` and the subtitle). Curves are drawn only
-    when present; ``unspecified`` is opt-in via ``show_unspecified``. Returns
-    ``(svg, warnings)``; warnings flag any sample where the nesting is violated
-    (rendered honestly, not clamped)."""
+    in the y-axis unit (stated in ``unit`` and the subtitle) and the ceiling's name.
+    The ceiling curve is labelled ``ceiling_label`` (``ceiling_word`` in prose
+    warnings): "tracked" for leanblueprint, where the blueprint node set is a
+    genuine tracked total, but "total" for plain Lean, where the ceiling is just the
+    probe-lean declaration count and there is no curated tracked set. Curves are
+    drawn only when present; ``unspecified`` is opt-in via ``show_unspecified``.
+    Returns ``(svg, warnings)``; warnings flag any sample where the nesting is
+    violated (rendered honestly, not clamped)."""
     warnings: list[str] = []
     for i, d in enumerate(cats):
         if not (verified[i] <= verified_trusted[i] <= tracked[i]):
             warnings.append(
                 f"{d}: frontier nesting violated "
                 f"(verified {verified[i]} <= verified+trusted {verified_trusted[i]} "
-                f"<= tracked {tracked[i]})"
+                f"<= {ceiling_word} {tracked[i]})"
             )
         for name, series in (("in-progress", in_progress), ("failed", failed)):
             if series[i] > tracked[i]:
-                warnings.append(f"{d}: {name} ({series[i]}) exceeds tracked ({tracked[i]})")
+                warnings.append(f"{d}: {name} ({series[i]}) exceeds {ceiling_word} ({tracked[i]})")
 
     y_max = nice_ceiling(max(tracked) if tracked else 0)
     plot = Plot(cats, y_max, f"{base_title} — combined", subtitle, unit)
@@ -503,7 +511,7 @@ def _combined_plot(
     # with one vocabulary; the node-vs-atom unit and blueprint-vs-probe-lean
     # provenance live in the subtitle and the "How to read" docs.
     legend = [
-        ("tracked (ceiling)", COL["tracked"]),
+        (ceiling_label, COL["tracked"]),
         ("verified + trusted", COL["verified_trusted"]),
         ("verified", COL["verified"]),
     ]
@@ -579,7 +587,9 @@ def lean_combined_svg(ok, base_title, subtitle):
     ``in-progress`` = ``sorry`` (``unverified``); ``failed`` = elaboration error.
     Lean has no blueprint statement axis, so ``unrealized`` and ``unspecified`` are
     not applicable (always zero, never drawn). Like the lean two-panel there is no
-    fixed ceiling -- ``tracked`` is the declaration count and grows over time."""
+    fixed ceiling and no curated tracked set -- the ceiling is just the probe-lean
+    declaration count (labelled "total", matching the two-panel), which grows over
+    time; probe-lean gives us no "tracked" number to draw."""
     cats = [r["sample_date"] for r in ok]
     tracked = [r["lean_def_total"] + r["lean_thm_total"] for r in ok]
     verified = [
@@ -608,6 +618,8 @@ def lean_combined_svg(ok, base_title, subtitle):
         subtitle,
         "declarations",
         show_unspecified=False,
+        ceiling_label="total",
+        ceiling_word="total",
     )
 
 
@@ -688,9 +700,10 @@ def parse_args(argv):
         action="store_true",
         help="leanblueprint / lean: render a single-panel chart pooling definitions "
         "and theorems (unit: blueprint node for leanblueprint, declaration for lean), "
-        "FC-aligned: tracked / verified+trusted / verified, plus in-progress / failed "
-        "/ unrealized. Writes burnup-combined.svg; --unspecified adds the "
-        "no-statement curve (leanblueprint only).",
+        "FC-aligned: ceiling / verified+trusted / verified, plus in-progress / failed "
+        "/ unrealized. The ceiling is 'tracked' for leanblueprint but 'total' for lean "
+        "(probe-lean-sourced, no tracked number). Writes burnup-combined.svg; "
+        "--unspecified adds the no-statement curve (leanblueprint only).",
     )
     p.add_argument(
         "--strict",
