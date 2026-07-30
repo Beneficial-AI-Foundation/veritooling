@@ -215,7 +215,7 @@ which grows over time. `--in-progress`/`--unspecified` are ignored here too.
 python3 plot_progress.py data/secure-messaging/progress.jsonl --combined --unspecified --png
 ```
 
-`--combined` (leanblueprint only) draws instead a single **combined** panel that
+`--combined` (leanblueprint or lean) draws instead a single **combined** panel that
 pools definitions and theorems (counted as blueprint nodes), using the FC ("Atom
 statuses and colours") vocabulary: nested frontiers
 `tracked ≥ verified+trusted ≥ verified`, plus zero-based `in-progress` (a
@@ -238,13 +238,35 @@ rendering them as zero; `--strict` exits non-zero if any sample violates the
 frontier nesting (the warning is stamped into the SVG regardless).
 See `combined-atoms-plan.md` for the full derivation.
 
-**Scope caveat.** This chart measures *blueprint completion*, not repo-wide sorry
-debt. `in-progress` counts only formalized blueprint **nodes** whose bindings
-contain a `sorry`; a `sorry` in a declaration the blueprint does not track (not
-bound to, nor reachable from, any formalized node) is invisible here. So
-`in-progress = 0` means "every formalized blueprint node is sorry-free", not "the
-repo has no sorries". Surfacing untracked sorry debt is tracked in
-[#34](https://github.com/Beneficial-AI-Foundation/veritooling/issues/34).
+For a **lean** history (no blueprint) `--combined` pools the two lean panels into
+the same FC panel, but the unit is a **declaration** and the numbers come straight
+from probe-lean (there is no blueprint statement axis). The mapping matches
+`colors.py`: `verified` (green) = probe-lean `verified` + `transitively-verified`;
+`verified + trusted` adds `trusted` (axiom/external) and equals the two-panel
+"without sorry" frontier; `in-progress` = `sorry` (`unverified`); `failed` = an
+elaboration error. Lean has no `unspecified` (no-statement) or `unrealized`
+(over-claim) state, so those curves never draw and `--unspecified` is ignored.
+Like the lean two-panel, `total` grows over time (no fixed ceiling).
+
+```bash
+python3 plot_progress.py \
+  data/KeyedVerificationAnonymousCredential-model/progress.jsonl --combined --png
+```
+
+On the committed KVAC capture every declaration is `transitively-verified`
+(0 `sorry`/`trusted`/`failed`), so the three frontiers coincide and the green line
+tracks the ceiling as it grows 9 → 174 — a cleanly-verified, growing project.
+
+**Scope caveat (leanblueprint only).** The leanblueprint combined chart measures
+*blueprint completion*, not repo-wide sorry debt. `in-progress` counts only
+formalized blueprint **nodes** whose bindings contain a `sorry`; a `sorry` in a
+declaration the blueprint does not track (not bound to, nor reachable from, any
+formalized node) is invisible here. So `in-progress = 0` means "every formalized
+blueprint node is sorry-free", not "the repo has no sorries". Surfacing untracked
+sorry debt is tracked in
+[#34](https://github.com/Beneficial-AI-Foundation/veritooling/issues/34). The
+**lean** combined chart has no such blind spot: it counts every declaration, so
+its `in-progress` is the project's full `sorry` count.
 
 ## How to read the charts
 
@@ -301,6 +323,18 @@ and the *proof* status from probe-lean (see subtitle):
 - **unspecified** (`--unspecified`) — nodes with no Lean statement yet.
 Because the unit is a node, sorries in code the blueprint does not track are not
 shown (the Scope caveat above).
+
+**Combined** (`burnup-combined.svg`, lean `--combined` — y-axis "declarations").
+Unit: a Lean declaration; definitions and theorems pooled. Same FC bands, but both
+axes come from probe-lean (no blueprint), so it sees every declaration:
+- **tracked (ceiling)** — all declarations (grows over time; no fixed ceiling).
+- **verified + trusted** — `verified + transitively-verified + trusted` (= the
+  two-panel "without sorry").
+- **verified** — `verified + transitively-verified` (green; no trusted).
+- **in-progress** — declarations with a `sorry` (`unverified`) (drawn when present);
+  this is the project's full sorry count, not just tracked nodes.
+- **failed** — declarations with an elaboration error (drawn when present).
+- **unspecified** / **unrealized** — not applicable to lean (never drawn).
 
 ## Scheduling weekly updates (cron)
 

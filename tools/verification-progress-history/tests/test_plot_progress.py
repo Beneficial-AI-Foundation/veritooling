@@ -280,3 +280,49 @@ def test_combined_strict_exits_nonzero_on_violation(tmp_path):
     p.write_text(json.dumps(_bpa("2026-07-22", bp_def_verified=200)) + "\n")
     assert pp.main([str(p), "--combined"]) == 0  # still renders (warning only)
     assert pp.main([str(p), "--combined", "--strict"]) == 3  # strict escalates to nonzero
+
+
+# --------------------------------------------------------------------------- #
+# Combined (--combined) chart, lean pipeline
+# --------------------------------------------------------------------------- #
+def test_lean_combined_single_panel_and_fc_aligned_legend():
+    # A mix: some sorry (in-progress) and some trusted, so the FC bands separate.
+    ok = [
+        _ln("2026-05-20", lean_def_total=9, lean_def_trans_verified=9),
+        _ln("2026-07-29", lean_thm_sorry=5, lean_thm_trans_verified=30, lean_thm_trusted=2),
+    ]
+    svg, warns = pp.lean_combined_svg(ok, "KVAC", "sub")
+    assert warns == []
+    assert svg.count("<svg") == 1  # one panel, not two
+    assert "— combined" in svg
+    # FC vocabulary, not the lean two-panel terms.
+    assert "tracked (ceiling)" in svg
+    assert "verified + trusted" in svg
+    assert "without sorry" not in svg and "trust boundary" not in svg
+    assert "in-progress (sorry/assume)" in svg  # 5 sorries -> curve drawn
+    # Unit is a declaration, and there is no blueprint statement axis.
+    assert "declarations" in svg
+    assert "unspecified (no statement)" not in svg
+    assert "unrealized" not in svg
+
+
+def test_lean_combined_clean_history_has_no_status_curves():
+    svg, _ = pp.lean_combined_svg([_ln("2026-07-29")], "KVAC", "s")  # 0 sorry/failed
+    assert "in-progress (sorry/assume)" not in svg
+    assert ">failed</text>" not in svg
+
+
+def test_lean_combined_mode_via_main_and_distinct_filename(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps(_ln("2026-07-29")) + "\n")
+    assert pp.main([str(p), "--combined"]) == 0
+    assert (tmp_path / "burnup-combined.svg").is_file()
+    assert not (tmp_path / "burnup.svg").exists()  # never overwrites the two-panel chart
+
+
+def test_lean_combined_refuses_history_missing_columns(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    # A lean row predating the kind-split status columns (only totals present).
+    p.write_text(json.dumps({"status": "ok", "pipeline": "lean", "sample_date": "x"}) + "\n")
+    assert pp.main([str(p), "--combined"]) == 2  # must not silently render zeros
+    assert not (tmp_path / "burnup-combined.svg").exists()
