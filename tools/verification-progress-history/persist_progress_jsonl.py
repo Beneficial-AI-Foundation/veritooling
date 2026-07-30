@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """Persist progress JSONL into VeriLib ``repostats``.
 
-Maps plot_progress burn-up series to meaning-based columns (1:1 values):
+Colour pipelines (verus/aeneas) map the burn-up series to meaning-based columns
+(1:1 values):
 
     tracked, verified, verified_trusted, translated
     in_progress <- yellow
     unspecified <- white
+    failed      <- red
+
+A leanblueprint history has no colour fields; it is folded into those same
+columns using the combined-atoms mapping (``plot_progress.combined_atoms_svg``),
+with ``translated`` always 0. Either way the untouched source record is stored
+in ``raw_record`` so the derived columns stay reversible.
 
 Only ``status == ok`` rows are written. Requires PyMySQL.
 
@@ -23,7 +30,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from plot_progress import load_records
+from plot_progress import ATOMS_FIELDS, _coerce_ints, _present, _read_rows
 
 PLOT_FIELDS = (
     "tracked",
@@ -32,7 +39,10 @@ PLOT_FIELDS = (
     "translated",
     "in_progress",
     "unspecified",
+    "failed",
 )
+
+PIPELINE_LEANBLUEPRINT = "leanblueprint"
 
 DEFAULT_MAP = Path(__file__).resolve().parent / "repos.map.json"
 
@@ -46,7 +56,55 @@ def plot_categories_from_record(record: dict) -> dict[str, int]:
         "translated": int(record["translated"]),
         "in_progress": int(record["yellow"]),
         "unspecified": int(record["white"]),
+        "failed": int(record["red"]),
     }
+
+
+def atoms_categories_from_record(record: dict) -> dict[str, int]:
+    """Counts matching ``plot_progress.combined_atoms_svg`` for one sample.
+
+    Every blueprint node is one atom; definitions and theorems are pooled.
+    """
+    verified = record["bp_def_verified"] + record["bp_thm_verified"]
+    return {
+        "tracked": record["bp_def_total"] + record["bp_thm_total"],
+        "verified": verified,
+        "verified_trusted": verified + record["bp_def_trusted"] + record["bp_thm_trusted"],
+        # Aeneas-only intermediate; a blueprint history has no translation step.
+        "translated": 0,
+        "in_progress": record["bp_def_in_progress"] + record["bp_thm_in_progress"],
+        "unspecified": (
+            (record["bp_def_total"] - record["bp_def_formalized"])
+            + (record["bp_thm_total"] - record["bp_thm_formalized"])
+        ),
+        "failed": record["bp_def_failed"] + record["bp_thm_failed"],
+    }
+
+
+def validate_atoms_categories(raw: dict, cats: dict[str, int]) -> list[str]:
+    """Return frontier/nesting violations for an ok leanblueprint sample.
+
+    Absent bp_* columns coerce to 0, so require them rather than persisting an
+    empty series for a history that predates them.
+    """
+    missing = [f for f in ATOMS_FIELDS if not _present(raw, f)]
+    if missing:
+        return [
+            "missing per-node proof-status columns "
+            f"({', '.join(missing[:4])}{'…' if len(missing) > 4 else ''}); "
+            "re-sample with a probe-leanblueprint that emits them"
+        ]
+
+    errors: list[str] = []
+    if not (cats["verified"] <= cats["verified_trusted"] <= cats["tracked"]):
+        errors.append(
+            f"frontier nesting violated (verified {cats['verified']} <= "
+            f"verified+trusted {cats['verified_trusted']} <= tracked {cats['tracked']})"
+        )
+    for name in ("in_progress", "failed", "unspecified"):
+        if cats[name] > cats["tracked"]:
+            errors.append(f"{name} ({cats[name]}) exceeds tracked ({cats['tracked']})")
+    return errors
 
 
 def validate_plot_categories(record: dict, cats: dict[str, int]) -> list[str]:
@@ -114,14 +172,24 @@ def record_to_row(
     record: dict,
     repo_id: int,
     *,
+    raw: dict | None = None,
     strict: bool = True,
 ) -> dict[str, Any] | None:
-    """Map one JSONL record to a repostats row, or None if not ``ok``."""
+    """Map one JSONL record to a repostats row, or None if not ``ok``.
+
+    ``raw`` is the pre-coercion record; it is stored verbatim in ``raw_record``
+    and used to tell an absent column from a genuine zero.
+    """
     if record.get("status") != "ok":
         return None
 
-    cats = plot_categories_from_record(record)
-    violations = validate_plot_categories(record, cats)
+    raw = record if raw is None else raw
+    if record.get("pipeline") == PIPELINE_LEANBLUEPRINT:
+        cats = atoms_categories_from_record(record)
+        violations = validate_atoms_categories(raw, cats)
+    else:
+        cats = plot_categories_from_record(record)
+        violations = validate_plot_categories(record, cats)
     if violations:
         commit = record.get("commit", "?")
         msg = f"commit={commit}: " + "; ".join(violations)
@@ -142,21 +210,16 @@ def record_to_row(
         except ValueError:
             commit_date = None
 
-    tracked = cats["tracked"]
-    verified = cats["verified"]
-    verified_trusted = cats["verified_trusted"]
-    translated = cats["translated"]
-    unspecified = cats["unspecified"]
-    in_progress = cats["in_progress"]
-
     return {
         "repo_id": repo_id,
-        "verified": verified,
-        "tracked": tracked,
-        "verified_trusted": verified_trusted,
-        "translated": translated,
-        "unspecified": unspecified,
-        "in_progress": in_progress,
+        "verified": cats["verified"],
+        "tracked": cats["tracked"],
+        "verified_trusted": cats["verified_trusted"],
+        "translated": cats["translated"],
+        "unspecified": cats["unspecified"],
+        "in_progress": cats["in_progress"],
+        "failed": cats["failed"],
+        "raw_record": json.dumps(raw, sort_keys=True, separators=(",", ":")),
         "commit": (record.get("commit") or None),
         "pipeline": (record.get("pipeline") or None),
         "commit_date": commit_date,
@@ -172,11 +235,14 @@ def load_ok_rows(
     strict: bool = True,
 ) -> tuple[list[dict[str, Any]], int]:
     """Return (rows_to_insert, skipped_non_ok_count)."""
-    records = load_records(jsonl_path)
+    # Keep the pre-coercion rows: they preserve blank-vs-zero and are what gets
+    # archived in raw_record.
+    raw_rows = _read_rows(jsonl_path)
+    records = _coerce_ints([dict(r) for r in raw_rows])
     rows: list[dict[str, Any]] = []
     skipped = 0
-    for record in records:
-        row = record_to_row(record, repo_id, strict=strict)
+    for record, raw in zip(records, raw_rows, strict=True):
+        row = record_to_row(record, repo_id, raw=raw, strict=strict)
         if row is None:
             skipped += 1
             continue
@@ -239,13 +305,14 @@ def connect_mysql(args: argparse.Namespace):
 INSERT_SQL = """
 INSERT INTO repostats (
     repo_id, verified,
-    tracked, verified_trusted, translated, unspecified, in_progress,
-    commit, pipeline, commit_date,
+    tracked, verified_trusted, translated, unspecified, in_progress, failed,
+    raw_record, commit, pipeline, commit_date,
     snapshot_date, created_at
 ) VALUES (
     %(repo_id)s, %(verified)s,
-    %(tracked)s, %(verified_trusted)s, %(translated)s, %(unspecified)s, %(in_progress)s,
-    %(commit)s, %(pipeline)s, %(commit_date)s,
+    %(tracked)s, %(verified_trusted)s, %(translated)s, %(unspecified)s,
+    %(in_progress)s, %(failed)s,
+    %(raw_record)s, %(commit)s, %(pipeline)s, %(commit_date)s,
     %(snapshot_date)s, COALESCE(%(created_at)s, CURRENT_TIMESTAMP)
 )
 """

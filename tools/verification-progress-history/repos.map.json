@@ -9,12 +9,21 @@
     }
   },
   "SparsePostQuantumRatchet-verify": {
-    "signal_shot_key": "spqr",
+    "signal_shot_key": "spqr-verify",
     "repo_url": "https://github.com/Beneficial-AI-Foundation/SparsePostQuantumRatchet-verify",
     "repo_ids": {
       "dev": 5608,
       "staging": 3175,
       "prod": 5173
+    }
+  },
+  "secure-messaging": {
+    "signal_shot_key": "secure-messaging",
+    "repo_url": "https://github.com/Beneficial-AI-Foundation/secure-messaging",
+    "repo_ids": {
+      "dev": 5753,
+      "staging": 3218,
+      "prod": 5235
     }
   },
   "dalek-verus": {
