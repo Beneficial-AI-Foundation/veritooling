@@ -522,7 +522,10 @@ def _install_probe_lean(ver, args, state):
     if ver in attempted:
         return None
     attempted.add(ver)
-    cmd = args.probe_lean_install_cmd.format(version=ver)
+    template = args.probe_lean_install_cmd
+    if "{version}" not in template:
+        return "probe-lean installer cmd template must include '{version}'"
+    cmd = template.replace("{version}", ver)
     print(f"  [setup] probe-lean-{ver} missing -> installing: {cmd}")
     code, out = run(["sh", "-c", cmd], timeout=args.setup_timeout)
     if code != 0:
