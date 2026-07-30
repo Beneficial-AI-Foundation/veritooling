@@ -194,6 +194,14 @@ def test_lean_two_panels_and_legends():
     assert "tracked (ceiling)" not in svg and ">formalized</text>" not in svg
 
 
+def test_lean_two_panel_failed_curve_only_when_present():
+    # No failures -> no failed curve (clean history stays uncluttered).
+    assert ">failed</text>" not in pp.lean_svg([_ln("2026-07-29")], "KVAC", "s")
+    # A failure -> the curve appears, so it is not folded into the sorry gap.
+    svg = pp.lean_svg([_ln("2026-07-29", lean_thm_failed=3)], "KVAC", "s")
+    assert ">failed</text>" in svg
+
+
 def test_lean_mode_autodetected_from_pipeline(tmp_path):
     p = tmp_path / "progress.jsonl"
     p.write_text(json.dumps(_ln("2026-07-29")) + "\n")

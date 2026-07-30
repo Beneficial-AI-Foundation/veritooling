@@ -1116,6 +1116,12 @@ def main(argv=None):
     print(f"[pipeline] {pipeline}  project={project_dir}")
     if pipeline == "aeneas" and args.skip_verify:
         print("[warn] --skip-verify is ignored for aeneas (probe-aeneas does not forward it)")
+    if pipeline == "lean" and args.skip_verify:
+        print(
+            "[warn] --skip-verify skips probe-lean's verification pass, so atoms carry no "
+            "verification-status: every proof frontier reads 0 while total stays high. The "
+            "chart will look like 'nothing proved'; each sample is flagged in `reason`."
+        )
     if pipeline in ("lean", "leanblueprint"):
         # probe-lean is Lean-version-specific; select the matching binary per
         # sample via a managed PATH prefix (see probe_lean_setup). Resolve the

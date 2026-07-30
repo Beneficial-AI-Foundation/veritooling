@@ -63,6 +63,12 @@ from pathlib import Path
 # every other structural kind is a "definition". See probe-lean docs/SCHEMA.md.
 THEOREM_KINDS = frozenset({"theorem", "axiom"})
 
+# The verification-status values we know how to bucket (see probe-lean's
+# docs/SCHEMA.md). Anything else -- or a missing status -- would inflate `total`
+# without landing in a bucket, silently distorting the frontiers, so count_lean
+# warns on it (as blueprint_progress.py does for its own statuses).
+KNOWN_STATUSES = frozenset({"unverified", "verified", "transitively-verified", "trusted", "failed"})
+
 
 def _iter_atoms(data) -> list:
     """``data`` is a map of probe-id -> atom (Schema 3.0); tolerate a list too."""
@@ -115,6 +121,18 @@ def count_lean(envelope: dict) -> dict:
     warnings: list[str] = []
     if schema and not schema.startswith("probe-lean/"):
         warnings.append(f"unexpected schema {schema!r} (want probe-lean/extract)")
+    # A status we don't bucket -- or none at all (e.g. a --skip-verify extract) --
+    # counts toward `total` but no frontier, so the gap total - without-sorry would
+    # silently absorb it. Surface both, matching blueprint_progress.py.
+    unknown = {a.get("verification-status") for a in atoms} - KNOWN_STATUSES - {None}
+    if unknown:
+        warnings.append(f"unrecognised verification-status values: {sorted(unknown)}")
+    no_status = sum(1 for a in atoms if a.get("verification-status") is None)
+    if no_status:
+        warnings.append(
+            f"{no_status} atom(s) have no verification-status (counted in total, no "
+            "frontier); a --skip-verify extract has none, so all frontiers read 0"
+        )
     out["warnings"] = warnings
     return out
 

@@ -206,10 +206,13 @@ For a **lean** history (no blueprint) two panels are drawn — **Definitions** a
 **Theorems** — each with three nested frontiers: `total`, `without sorry`
 (`verified + transitively-verified + trusted`), and the `trust boundary`
 (`transitively-verified + trusted`, i.e. sound modulo the axioms/external trust
-base). The gap `total − without sorry` is the `sorry` count; `without sorry −
-trust boundary` is the locally-clean-but-transitively-contaminated set. Unlike a
-blueprint history there is no fixed ceiling: `total` is the declaration count,
-which grows over time. `--in-progress`/`--unspecified` are ignored here too.
+base). The gap `total − without sorry` is `sorry + failed` (plus any
+unrecognised/absent status, which `lean_progress.py` warns about), not the `sorry`
+count alone; `failed` is drawn as its own curve when present, so a failure is not
+folded into that gap. `without sorry − trust boundary` is the
+locally-clean-but-transitively-contaminated set. Unlike a blueprint history there
+is no fixed ceiling: `total` is the declaration count, which grows over time.
+`--in-progress`/`--unspecified` are ignored here too.
 
 ```bash
 python3 plot_progress.py data/secure-messaging/progress.jsonl --combined --unspecified --png
@@ -304,8 +307,10 @@ declaration, split into a Definitions panel and a Theorems panel; no fixed ceili
 - **without sorry** — `verified + transitively-verified + trusted`.
 - **trust boundary** — `transitively-verified + trusted` (sound modulo the
   axioms/external trust base).
-The gap `total − without sorry` is the `sorry` count; `without sorry − trust
-boundary` is locally-clean-but-transitively-contaminated.
+- **failed** — an elaboration error; drawn as its own curve only when present.
+The gap `total − without sorry` is `sorry + failed` (plus any unrecognised/absent
+status); `without sorry − trust boundary` is
+locally-clean-but-transitively-contaminated.
 
 **Combined** (`burnup-combined.svg`, leanblueprint `--combined` — y-axis
 "blueprint nodes"). Unit: a blueprint node; definitions and theorems pooled. Same

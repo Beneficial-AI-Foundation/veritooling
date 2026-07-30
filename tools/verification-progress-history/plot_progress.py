@@ -395,15 +395,19 @@ def blueprint_svg(ok, base_title, subtitle) -> str:
 def _lean_panel(cats, m, prefix, title, subtitle, y_max):
     """One kind panel (definitions or theorems) with three nested frontiers.
 
-    total >= without-sorry >= trust-boundary. The gap total - without-sorry is the
-    sorry count; without-sorry - trust-boundary is the locally-clean-but-
-    transitively-contaminated set. Derived from the raw per-status counts so the
+    total >= without-sorry >= trust-boundary. The gap total - without-sorry is
+    ``sorry + failed`` (plus any unrecognised/absent status -- count_lean warns on
+    those), NOT the sorry count alone; without-sorry - trust-boundary is the
+    locally-clean-but-transitively-contaminated set. ``failed`` (an elaboration
+    error) is drawn as its own zero-based curve when present, so a failure is not
+    silently folded into that gap. Derived from the raw per-status counts so the
     stored record stays faithful to probe-lean's own statuses."""
     total = [r[f"{prefix}total"] for r in m]
     no_sorry = [
         r[f"{prefix}verified"] + r[f"{prefix}trans_verified"] + r[f"{prefix}trusted"] for r in m
     ]
     trust = [r[f"{prefix}trans_verified"] + r[f"{prefix}trusted"] for r in m]
+    failed = [r[f"{prefix}failed"] for r in m]
 
     p = Plot(cats, y_max, title, subtitle, "declarations")
     p.axes()
@@ -414,13 +418,17 @@ def _lean_panel(cats, m, prefix, title, subtitle, y_max):
     p.line(total, COL["tracked"])
     p.line(no_sorry, COL["formalized"])
     p.line(trust, COL["proved"])
-    p.legend(
-        [
-            ("total", COL["tracked"]),
-            ("without sorry", COL["formalized"]),
-            ("trust boundary", COL["proved"]),
-        ]
-    )
+    legend = [
+        ("total", COL["tracked"]),
+        ("without sorry", COL["formalized"]),
+        ("trust boundary", COL["proved"]),
+    ]
+    # Zero-based; drawn only when some sample failed (like the combined chart), so a
+    # clean history stays uncluttered and failures never masquerade as sorries.
+    if any(failed):
+        p.line(failed, COL["failed"])
+        legend.append(("failed", COL["failed"]))
+    p.legend(legend)
     return p
 
 

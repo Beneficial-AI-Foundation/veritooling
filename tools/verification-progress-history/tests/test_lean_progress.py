@@ -80,3 +80,20 @@ def test_unexpected_schema_warns():
     m = lean_progress.count_lean({"schema": "probe-verus/extract", "data": {}})
     assert m["def_total"] == 0 and m["thm_total"] == 0
     assert any("unexpected schema" in w for w in m["warnings"])
+
+
+def test_unknown_status_warns():
+    # A status we don't bucket inflates total but no frontier -> must be surfaced.
+    env = _envelope([_atom("def", "transitively-verified"), _atom("theorem", "quantum")])
+    m = lean_progress.count_lean(env)
+    assert m["def_total"] + m["thm_total"] == 2  # counted in total
+    assert m["thm_verified"] == m["thm_trans_verified"] == 0  # but in no bucket
+    assert any("unrecognised verification-status" in w and "quantum" in w for w in m["warnings"])
+
+
+def test_missing_status_warns_skip_verify_case():
+    # A --skip-verify extract emits atoms with no verification-status at all.
+    env = _envelope([_atom("def", None), _atom("theorem", None)])
+    m = lean_progress.count_lean(env)
+    assert m["def_total"] == 1 and m["thm_total"] == 1
+    assert any("no verification-status" in w for w in m["warnings"])
