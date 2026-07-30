@@ -48,14 +48,16 @@ from pathlib import Path
 
 from blueprint_progress import count_blueprint
 from colors import count_colors
+from lean_progress import count_lean
 
 # Outputs live next to the tool, one folder per repo: data/<name>/.
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
 # Cross-sample state (e.g. last-installed Verus release for setup-dedup).
 _VERUS_STATE: dict = {}
-# Cross-sample state for leanblueprint (managed bin dir + last probe-lean version).
-_LEANBP_STATE: dict = {}
+# Cross-sample state for the probe-lean-backed pipelines (`lean` and
+# `leanblueprint`): managed bin dir, last-selected probe-lean version, dep-cache key.
+_PROBE_LEAN_STATE: dict = {}
 
 # Fixed column order for the CSV / JSONL records.
 METRIC_FIELDS = [
@@ -104,6 +106,15 @@ BLUEPRINT_METRIC_KEYS = [
     "thm_unrealized",
 ]
 BLUEPRINT_FIELDS = [f"bp_{k}" for k in BLUEPRINT_METRIC_KEYS]
+# probe-lean kind-split progress metrics (the `lean` pipeline: a Lean project with
+# no blueprint); blank for the other pipelines, same convention as `bp_*`. Prefixed
+# `lean_` in the record; count_lean returns them unprefixed.
+LEAN_METRIC_KEYS = [
+    f"{p}{s}"
+    for p in ("def_", "thm_")
+    for s in ("total", "sorry", "verified", "trans_verified", "trusted", "failed")
+]
+LEAN_FIELDS = [f"lean_{k}" for k in LEAN_METRIC_KEYS]
 RECORD_FIELDS = (
     [
         "repo",
@@ -120,9 +131,18 @@ RECORD_FIELDS = (
     ]
     + METRIC_FIELDS
     + BLUEPRINT_FIELDS
+    + LEAN_FIELDS
 )
 
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+# Opt-in installer for a missing per-version probe-lean (see probe_lean_setup /
+# --install-probe-lean). The official installer writes to ~/.local/bin/probe-lean-
+# <version>; `{version}` is substituted with the Lean version (e.g. v4.30.0).
+DEFAULT_PROBE_LEAN_INSTALLER = (
+    "curl -sSfL https://raw.githubusercontent.com/Beneficial-AI-Foundation/"
+    "probe-lean/main/tools/bash/install.sh | bash -s -- --lean-version {version}"
+)
 
 # Absolute paths scrubbed from recorded `reason` strings before they are written
 # (the history files are committed, so must stay machine-independent). Populated
@@ -489,7 +509,31 @@ def _lean_version_from_toolchain(tc: str | None) -> str | None:
     return m.group(0) if m else None
 
 
-def leanblueprint_setup(project_dir, args, state):
+def _install_probe_lean(ver, args, state):
+    """Fetch/build ``probe-lean-<ver>`` via the installer (opt-in, see
+    ``--install-probe-lean``). Mirrors ``verus_setup`` shelling out to
+    ``probe-verus setup``: the Lean equivalent is probe-lean's ``install.sh``,
+    which writes ``~/.local/bin/probe-lean-<version>``.
+
+    Deduped per version within a run via ``state['install_attempted']`` so a
+    version that fails to install is not retried on every later sample. Returns
+    None on success (or when already attempted), or a failure reason string."""
+    attempted = state.setdefault("install_attempted", set())
+    if ver in attempted:
+        return None
+    attempted.add(ver)
+    template = args.probe_lean_install_cmd
+    if "{version}" not in template:
+        return "probe-lean installer cmd template must include '{version}'"
+    cmd = template.replace("{version}", ver)
+    print(f"  [setup] probe-lean-{ver} missing -> installing: {cmd}")
+    code, out = run(["sh", "-c", cmd], timeout=args.setup_timeout)
+    if code != 0:
+        return f"probe-lean-{ver} install failed (code {code}): {_last_line(out)}"[:300]
+    return None
+
+
+def probe_lean_setup(project_dir, args, state):
     """Point ``probe-lean`` at the binary matching this commit's Lean toolchain.
 
     probe-lean reads ``.olean``s, whose binary format is Lean-version-specific,
@@ -499,8 +543,9 @@ def leanblueprint_setup(project_dir, args, state):
     ``<probe-lean-dir>/probe-lean-v<version>`` (the standard per-version install
     layout). We expose the match as ``probe-lean`` on a tool-managed PATH prefix
     (never touching the user's own ``probe-lean`` symlink), refreshed per sample.
-    probe-leanblueprint then invokes bare ``probe-lean`` and picks it up.
-    Returns None on success, or a failure reason string."""
+    The ``lean`` pipeline invokes bare ``probe-lean`` and the ``leanblueprint``
+    pipeline has probe-leanblueprint do so; both pick it up. Returns None on
+    success, or a failure reason string."""
     tc = detect_lean_toolchain(project_dir)
     if not tc:
         return "no lean-toolchain file in the project; cannot pick a probe-lean version"
@@ -510,8 +555,15 @@ def leanblueprint_setup(project_dir, args, state):
     if not args.probe_lean_dir:
         return "probe-lean not on PATH; install it or pass --probe-lean-dir"
     binary = args.probe_lean_dir / f"probe-lean-{ver}"
+    if not binary.is_file() and getattr(args, "install_probe_lean", False):
+        reason = _install_probe_lean(ver, args, state)
+        if reason:
+            return reason
     if not binary.is_file():
-        return f"no probe-lean-{ver} at {binary}; install it or set --probe-lean-dir"
+        hint = "install it or set --probe-lean-dir"
+        if not getattr(args, "install_probe_lean", False):
+            hint += " (or pass --install-probe-lean to fetch it automatically)"
+        return f"no probe-lean-{ver} at {binary}; {hint}"
     link = state["managed_bin"] / "probe-lean"
     if link.is_symlink() or link.exists():
         link.unlink()
@@ -826,6 +878,12 @@ def run_extract_cmd(pipeline, project_dir, args):
         cmd = [args.probe_leanblueprint, "extract", str(project_dir)]
         if args.verso_render_cmd:
             cmd += ["--verso-render-cmd", args.verso_render_cmd]
+    elif pipeline == "lean":
+        # Bare `probe-lean`, resolved via the tool-managed PATH prefix to the
+        # per-version binary picked in probe_lean_setup (see main).
+        cmd = ["probe-lean", "extract", str(project_dir)]
+        if args.skip_verify:
+            cmd.append("--skip-verify")
     else:
         return 127, f"pipeline {pipeline} not supported"
     return run(cmd, timeout=args.sample_timeout)
@@ -890,7 +948,7 @@ def regenerate_csv(jsonl: Path, csv_path: Path):
 
 
 def blank_metrics():
-    return {k: "" for k in METRIC_FIELDS + BLUEPRINT_FIELDS}
+    return {k: "" for k in METRIC_FIELDS + BLUEPRINT_FIELDS + LEAN_FIELDS}
 
 
 # --------------------------------------------------------------------------- #
@@ -966,9 +1024,25 @@ def parse_args(argv):
         type=Path,
         default=None,
         help="Directory of per-version probe-lean binaries (probe-lean-v<ver>); "
-        "default: the directory of `probe-lean` on PATH. The leanblueprint "
-        "pipeline selects the one matching each commit's lean-toolchain, since "
+        "default: the directory of `probe-lean` on PATH. The lean and leanblueprint "
+        "pipelines select the one matching each commit's lean-toolchain, since "
         "probe-lean reads version-specific .oleans.",
+    )
+    p.add_argument(
+        "--install-probe-lean",
+        action="store_true",
+        help="If the probe-lean binary matching a sample's lean-toolchain is "
+        "missing, fetch/build it via the installer (--probe-lean-install-cmd) "
+        "instead of recording setup_failed. Off by default (it runs a network "
+        "installer). The installer writes to ~/.local/bin, so --probe-lean-dir "
+        "must point there (the default when probe-lean is installed the usual way).",
+    )
+    p.add_argument(
+        "--probe-lean-install-cmd",
+        default=DEFAULT_PROBE_LEAN_INSTALLER,
+        help="Command run (via sh -c) to install a missing probe-lean version when "
+        "--install-probe-lean is set; `{version}` is substituted with the Lean "
+        "version (e.g. v4.30.0). Default: the official curl|bash installer.",
     )
     p.add_argument(
         "--dep-cache-dir",
@@ -1039,35 +1113,33 @@ def main(argv=None):
     pipeline = args.pipeline
     if pipeline == "auto":
         pipeline = detect_pipeline(project_dir)
-    if pipeline not in ("verus", "aeneas", "leanblueprint"):
-        # `lean` can be requested or auto-detected, but extract is only wired for
-        # verus/aeneas/leanblueprint. Fail fast with a clear message instead of a
-        # late, per-sample `extract_failed`. Charon/Aeneas Lean projects are
-        # sampled via `aeneas`; blueprint projects via `leanblueprint`.
-        print(
-            f"[error] --pipeline {pipeline} is not supported (verus/aeneas/leanblueprint; "
-            f"Charon-based Lean projects use --pipeline aeneas).",
-            file=sys.stderr,
-        )
+    if pipeline not in ("verus", "aeneas", "lean", "leanblueprint"):
+        print(f"[error] --pipeline {pipeline} is not supported.", file=sys.stderr)
         return 2
     print(f"[pipeline] {pipeline}  project={project_dir}")
     if pipeline == "aeneas" and args.skip_verify:
         print("[warn] --skip-verify is ignored for aeneas (probe-aeneas does not forward it)")
-    if pipeline == "leanblueprint":
+    if pipeline == "lean" and args.skip_verify:
+        print(
+            "[warn] --skip-verify skips probe-lean's verification pass, so atoms carry no "
+            "verification-status: every proof frontier reads 0 while total stays high. The "
+            "chart will look like 'nothing proved'; each sample is flagged in `reason`."
+        )
+    if pipeline in ("lean", "leanblueprint"):
         # probe-lean is Lean-version-specific; select the matching binary per
-        # sample via a managed PATH prefix (see leanblueprint_setup). Resolve the
+        # sample via a managed PATH prefix (see probe_lean_setup). Resolve the
         # binary directory BEFORE prepending, so we find the user's real install.
         if args.probe_lean_dir is None:
             which = shutil.which("probe-lean")
             args.probe_lean_dir = Path(which).resolve().parent if which else None
         managed = work_clone.parent / f".vph-probe-lean-bin-{name}"
         managed.mkdir(parents=True, exist_ok=True)
-        _LEANBP_STATE.clear()
-        _LEANBP_STATE["managed_bin"] = managed
+        _PROBE_LEAN_STATE.clear()
+        _PROBE_LEAN_STATE["managed_bin"] = managed
         os.environ["PATH"] = f"{managed}{os.pathsep}{os.environ.get('PATH', '')}"
         if args.probe_lean_dir:
             _REDACT_PATHS.add(str(args.probe_lean_dir))  # setup_failed reasons cite this
-        print(f"[leanblueprint] probe-lean selected per sample from {args.probe_lean_dir}")
+        print(f"[{pipeline}] probe-lean selected per sample from {args.probe_lean_dir}")
 
     anchor_idx = WEEKDAYS.index(args.anchor_day)
     explicit = bool(args.commit)
@@ -1104,6 +1176,7 @@ def main(argv=None):
     for pl, binp in (
         ("verus", args.probe_verus),
         ("aeneas", args.probe_aeneas),
+        ("lean", "probe-lean"),
         ("leanblueprint", args.probe_leanblueprint),
     ):
         if pl == pipeline:
@@ -1137,6 +1210,7 @@ def main(argv=None):
             "tool": {
                 "verus": "probe-verus",
                 "aeneas": "probe-aeneas",
+                "lean": "probe-lean",
                 "leanblueprint": "probe-leanblueprint",
             }.get(pipeline, ""),
             "tool_version": tool_versions.get(pipeline, ""),
@@ -1181,9 +1255,9 @@ def main(argv=None):
                 continue
         elif pipeline == "aeneas":
             lean_prepare(project_dir)
-        elif pipeline == "leanblueprint":
-            lean_prepare(project_dir, args.dep_cache_dir, _LEANBP_STATE)
-            setup_reason = leanblueprint_setup(project_dir, args, _LEANBP_STATE)
+        elif pipeline in ("lean", "leanblueprint"):
+            lean_prepare(project_dir, args.dep_cache_dir, _PROBE_LEAN_STATE)
+            setup_reason = probe_lean_setup(project_dir, args, _PROBE_LEAN_STATE)
             if setup_reason:
                 record["status"] = "setup_failed"
                 record["reason"] = setup_reason[:300]
@@ -1259,14 +1333,48 @@ def main(argv=None):
             if (
                 args.dep_cache_dir
                 and record["status"] == "ok"
-                and _LEANBP_STATE.get("dep_cache_key")
+                and _PROBE_LEAN_STATE.get("dep_cache_key")
             ):
-                save_dep_cache(project_dir, args.dep_cache_dir, _LEANBP_STATE["dep_cache_key"])
+                save_dep_cache(project_dir, args.dep_cache_dir, _PROBE_LEAN_STATE["dep_cache_key"])
             print(
                 f"     {record['status']}: nodes={metrics['nodes_total']} "
                 f"def_formalized={metrics['def_formalized']} "
                 f"thm_formalized={metrics['thm_formalized']} "
                 f"thm_proved={metrics['thm_proved_confirmed']} ({record['duration_sec']}s)"
+            )
+            continue
+
+        if pipeline == "lean":
+            metrics = count_lean(env)
+            for k in LEAN_METRIC_KEYS:
+                record[f"lean_{k}"] = metrics[k]
+            decls = metrics["def_total"] + metrics["thm_total"]
+            # >=1 declaration means probe-lean read the project; 0 means no atoms
+            # (a build/toolchain failure or an empty extract) -- a visible gap, not
+            # a real "0" data point.
+            if decls > 0:
+                record["status"] = "ok"
+                record["reason"] = "; ".join(metrics["warnings"])
+                if code not in (0, None):
+                    record["reason"] = (record["reason"] + f"; extract exit={code}").strip("; ")
+                processed += 1
+            else:
+                record["status"] = "verify_error"
+                record["reason"] = f"probe-lean produced 0 declarations (exit={code})"
+                failed += 1
+            append_record(jsonl, csv_path, record)
+            # Snapshot the freshly-built deps (same key scheme as leanblueprint).
+            if (
+                args.dep_cache_dir
+                and record["status"] == "ok"
+                and _PROBE_LEAN_STATE.get("dep_cache_key")
+            ):
+                save_dep_cache(project_dir, args.dep_cache_dir, _PROBE_LEAN_STATE["dep_cache_key"])
+            print(
+                f"     {record['status']}: def={metrics['def_total']} thm={metrics['thm_total']} "
+                f"thm_sorry={metrics['thm_sorry']} "
+                f"thm_trust_boundary={metrics['thm_trans_verified'] + metrics['thm_trusted']} "
+                f"({record['duration_sec']}s)"
             )
             continue
 

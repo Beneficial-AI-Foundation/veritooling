@@ -4,8 +4,10 @@ Reconstruct a verification project's progress over its git history as a burn-up
 time series. The tool samples one commit per period, re-runs the real verifier at
 each, and records per-commit metrics to JSONL + CSV. `plot_progress.py` renders
 these as a burn-up SVG. The metric set depends on the pipeline: the colour set
-(`tracked`, `verified`, `verified+trusted`, `translated`) for Verus/Aeneas, and a
-two-axis blueprint set (`formalized`, `proved`) for `leanblueprint`.
+(`tracked`, `verified`, `verified+trusted`, `translated`) for Verus/Aeneas, a
+two-axis blueprint set (`formalized`, `proved`) for `leanblueprint`, and a
+kind-split sorry set (`without sorry`, `trust boundary`, per definition/theorem)
+for `lean` — a Lean project with no blueprint.
 
 Standalone Python 3.10+ CLI, stdlib only at runtime. It is not a GitHub Action:
 a multi-hour history walk with per-commit toolchain installs is a poor fit for CI.
@@ -14,7 +16,9 @@ Colour metric definitions live in the VeriLib docs,
 [Atom statuses and colours](https://beneficial-ai-foundation.github.io/VeriLib-Docs/components/processor/atom-statuses-and-colours/);
 reproduce them from any extract JSON with `colors.py <extract.json> --table`. The
 blueprint two-axis definitions live in probe-leanblueprint's `docs/SCHEMA.md`;
-reproduce them with `blueprint_progress.py <extract.json> --table`.
+reproduce them with `blueprint_progress.py <extract.json> --table`. The `lean`
+kind-split counts come straight from probe-lean's `verification-status`;
+reproduce them with `lean_progress.py <extract.json> --table`.
 
 ## Files
 
@@ -23,6 +27,7 @@ reproduce them with `blueprint_progress.py <extract.json> --table`.
 | `progress_history.py` | Sample history, checkout, run extract, write JSONL/CSV. |
 | `colors.py` | Compute the colour metric record (Verus/Aeneas) from one extract JSON. |
 | `blueprint_progress.py` | Compute the two-axis blueprint metric record (leanblueprint) from one extract JSON. |
+| `lean_progress.py` | Compute the kind-split sorry metric record (plain `lean`) from one extract JSON. |
 | `plot_progress.py` | Render the burn-up chart (SVG, optional PNG). |
 | `data/<name>/` | Committed outputs: `progress.{jsonl,csv}`, `burnup*.{svg,png}`. |
 
@@ -33,6 +38,7 @@ reproduce them with `blueprint_progress.py <extract.json> --table`.
   - Verus: [`probe-verus`](https://github.com/Beneficial-AI-Foundation/probe-verus) (installs verus-analyzer, scip, and the matching Verus).
   - Aeneas: [`probe-aeneas`](https://github.com/Beneficial-AI-Foundation/probe-aeneas) plus `elan` (runs Charon and `lake build`).
   - Lean blueprint: [`probe-leanblueprint`](https://github.com/Beneficial-AI-Foundation/probe-leanblueprint) plus `probe-lean` and `elan` (runs `probe-lean extract` and renders the Verso blueprint with `lake exe vbp build`).
+  - Lean (no blueprint): [`probe-lean`](https://github.com/Beneficial-AI-Foundation/probe-lean) plus `elan` (runs `probe-lean extract`). Same per-Lean-version binary layout as the blueprint pipeline.
 
 ## Run
 
@@ -123,6 +129,46 @@ only a dependency rev bumps within that toolchain, relies on lake's incremental
 rebuild rather than a cache restore. Disabled for a sample with no
 `lake-manifest.json` (the key would otherwise collapse to the toolchain alone).
 
+### KeyedVerificationAnonymousCredential-model (Lean, no blueprint)
+
+```bash
+python3 progress_history.py /path/to/KeyedVerificationAnonymousCredential-model \
+  --pipeline lean --cadence monthly --work-clone /tmp/vph-kvac \
+  --sample-timeout 3600 --resume --dep-cache-dir /tmp/vph-dep-cache
+```
+
+KVAC-model has a blueprint, but it is authored entirely with informal previews
+(no graph nodes), so the `leanblueprint` pipeline binds 0 nodes and charts
+nothing. The `lean` pipeline sidesteps the blueprint and counts probe-lean's
+declarations directly. It records the kind-split sorry set (see Output), not the
+colour set; it is the fallback for any Lean project without an informative
+blueprint (auto-detected when there is a `lean-toolchain`/`lakefile` but no
+`versoBlueprint` dependency or Massot `blueprint/src/web.tex`).
+
+Same probe-lean mechanics as `leanblueprint`: **probe-lean is
+Lean-version-specific**, so each sample runs the `probe-lean-v<toolchain>`
+matching that commit (from `--probe-lean-dir`), and `--dep-cache-dir` keys the
+compiled dependency builds by `(Lean toolchain, lake manifest)` to skip
+recompiles. There is no Verso render step. The committed
+`data/KeyedVerificationAnonymousCredential-model/` capture is 4 monthly samples
+over `experiment/bump-v4.30.0` spanning the v4.28.0 → v4.30.0 toolchain bump;
+declarations grow 9 → 174 with 0 `sorry`/axioms throughout, so the three
+frontiers coincide — a cleanly-verified, growing project. The payoff of the walk
+is watching the frontiers *diverge* on a project that carries proof debt.
+
+Add `--install-probe-lean` to auto-fetch a missing `probe-lean-v<ver>` via the
+installer instead of recording `setup_failed` (the Lean analogue of `probe-verus
+setup`; shared with the `leanblueprint` pipeline). It is off by default because it
+runs a network installer (`--probe-lean-install-cmd` overrides the command, e.g.
+to point at a vetted local `install.sh`); the official installer writes to
+`~/.local/bin`, so `--probe-lean-dir` must resolve there.
+
+**Caveat:** the built-in default fetches `install.sh` from probe-lean's mutable
+`main` branch (`raw.githubusercontent.com/.../probe-lean/main/...`) and pipes it to
+`bash`. For a reproducible or supply-chain-sensitive run, override
+`--probe-lean-install-cmd` to pin a tag/commit (or point at a vetted local
+`install.sh`) rather than relying on whatever `main` holds at run time.
+
 ### A single commit
 
 To (re)sample one commit and update its row, pass `--commit` (repeatable) instead
@@ -138,7 +184,8 @@ python3 progress_history.py /path/to/dalek-verus \
 
 Other options: `--cadence {weekly,biweekly,monthly}` (or `--cadence-weeks N`),
 `--anchor-day`, `--branch`, `--until`, `--output`/`--csv`, `--smt-seed`,
-`--skip-verify`. Run `--help` for the full list.
+`--skip-verify`, `--install-probe-lean`/`--probe-lean-install-cmd`. Run `--help`
+for the full list.
 
 ## Plot
 
@@ -161,11 +208,23 @@ the statement is written in Lean; *proved* = the proof is sorry-free and
 probe-lean-confirmed. `--in-progress`/`--unspecified` are colour-pipeline options
 and are ignored here.
 
+For a **lean** history (no blueprint) two panels are drawn — **Definitions** and
+**Theorems** — each with three nested frontiers: `total`, `without sorry`
+(`verified + transitively-verified + trusted`), and the `trust boundary`
+(`transitively-verified + trusted`, i.e. sound modulo the axioms/external trust
+base). The gap `total − without sorry` is `sorry + failed` (plus any
+unrecognised/absent status, which `lean_progress.py` warns about), not the `sorry`
+count alone; `failed` is drawn as its own curve when present, so a failure is not
+folded into that gap. `without sorry − trust boundary` is the
+locally-clean-but-transitively-contaminated set. Unlike a blueprint history there
+is no fixed ceiling: `total` is the declaration count, which grows over time.
+`--in-progress`/`--unspecified` are ignored here too.
+
 ```bash
 python3 plot_progress.py data/secure-messaging/progress.jsonl --combined --unspecified --png
 ```
 
-`--combined` (leanblueprint only) draws instead a single **combined** panel that
+`--combined` (leanblueprint or lean) draws instead a single **combined** panel that
 pools definitions and theorems (counted as blueprint nodes), using the FC ("Atom
 statuses and colours") vocabulary: nested frontiers
 `tracked ≥ verified+trusted ≥ verified`, plus zero-based `in-progress` (a
@@ -188,13 +247,35 @@ rendering them as zero; `--strict` exits non-zero if any sample violates the
 frontier nesting (the warning is stamped into the SVG regardless).
 See `combined-atoms-plan.md` for the full derivation.
 
-**Scope caveat.** This chart measures *blueprint completion*, not repo-wide sorry
-debt. `in-progress` counts only formalized blueprint **nodes** whose bindings
-contain a `sorry`; a `sorry` in a declaration the blueprint does not track (not
-bound to, nor reachable from, any formalized node) is invisible here. So
-`in-progress = 0` means "every formalized blueprint node is sorry-free", not "the
-repo has no sorries". Surfacing untracked sorry debt is tracked in
-[#34](https://github.com/Beneficial-AI-Foundation/veritooling/issues/34).
+For a **lean** history (no blueprint) `--combined` pools the two lean panels into
+the same FC panel, but the unit is a **declaration** and the numbers come straight
+from probe-lean (there is no blueprint statement axis). The mapping matches
+`colors.py`: `verified` (green) = probe-lean `verified` + `transitively-verified`;
+`verified + trusted` adds `trusted` (axiom/external) and equals the two-panel
+"without sorry" frontier; `in-progress` = `sorry` (`unverified`); `failed` = an
+elaboration error. Lean has no `unspecified` (no-statement) or `unrealized`
+(over-claim) state, so those curves never draw and `--unspecified` is ignored.
+Like the lean two-panel, `total` grows over time (no fixed ceiling).
+
+```bash
+python3 plot_progress.py \
+  data/KeyedVerificationAnonymousCredential-model/progress.jsonl --combined --png
+```
+
+On the committed KVAC capture every declaration is `transitively-verified`
+(0 `sorry`/`trusted`/`failed`), so the three frontiers coincide and the green line
+tracks the ceiling as it grows 9 → 174 — a cleanly-verified, growing project.
+
+**Scope caveat (leanblueprint only).** The leanblueprint combined chart measures
+*blueprint completion*, not repo-wide sorry debt. `in-progress` counts only
+formalized blueprint **nodes** whose bindings contain a `sorry`; a `sorry` in a
+declaration the blueprint does not track (not bound to, nor reachable from, any
+formalized node) is invisible here. So `in-progress = 0` means "every formalized
+blueprint node is sorry-free", not "the repo has no sorries". Surfacing untracked
+sorry debt is tracked in
+[#34](https://github.com/Beneficial-AI-Foundation/veritooling/issues/34). The
+**lean** combined chart has no such blind spot: it counts every declaration, so
+its `in-progress` is the project's full `sorry` count.
 
 ## How to read the charts
 
@@ -225,6 +306,18 @@ Unit: a blueprint node, split into a Definitions panel and a Theorems panel.
 - **formalized** — the Lean statement/signature exists (blueprint statement axis).
 - **proved** (theorems only) — sorry-free and probe-lean-confirmed.
 
+**Lean two-panel** (`burnup.svg`, lean — y-axis "declarations"). Unit: a Lean
+declaration, split into a Definitions panel and a Theorems panel; no fixed ceiling
+(`total` grows over time).
+- **total** — every declaration of that kind.
+- **without sorry** — `verified + transitively-verified + trusted`.
+- **trust boundary** — `transitively-verified + trusted` (sound modulo the
+  axioms/external trust base).
+- **failed** — an elaboration error; drawn as its own curve only when present.
+The gap `total − without sorry` is `sorry + failed` (plus any unrecognised/absent
+status); `without sorry − trust boundary` is
+locally-clean-but-transitively-contaminated.
+
 **Combined** (`burnup-combined.svg`, leanblueprint `--combined` — y-axis
 "blueprint nodes"). Unit: a blueprint node; definitions and theorems pooled. Same
 FC bands as the colour burn-up, but the *statement* axis comes from the blueprint
@@ -241,6 +334,18 @@ and the *proof* status from probe-lean (see subtitle):
 - **unspecified** (`--unspecified`) — nodes with no Lean statement yet.
 Because the unit is a node, sorries in code the blueprint does not track are not
 shown (the Scope caveat above).
+
+**Combined** (`burnup-combined.svg`, lean `--combined` — y-axis "declarations").
+Unit: a Lean declaration; definitions and theorems pooled. Same FC bands, but both
+axes come from probe-lean (no blueprint), so it sees every declaration:
+- **tracked (ceiling)** — all declarations (grows over time; no fixed ceiling).
+- **verified + trusted** — `verified + transitively-verified + trusted` (= the
+  two-panel "without sorry").
+- **verified** — `verified + transitively-verified` (green; no trusted).
+- **in-progress** — declarations with a `sorry` (`unverified`) (drawn when present);
+  this is the project's full sorry count, not just tracked nodes.
+- **failed** — declarations with an elaboration error (drawn when present).
+- **unspecified** / **unrealized** — not applicable to lean (never drawn).
 
 ## Scheduling weekly updates (cron)
 
@@ -287,6 +392,19 @@ the *formalized* nodes:
 `bp_def_verified, bp_def_trusted, bp_def_in_progress, bp_def_failed,
 bp_def_unrealized` (and the `bp_thm_*` counterparts)
 
+The `lean` pipeline fills its own kind-split set instead (the colour and `bp_*`
+columns stay blank), one group per kind:
+
+`lean_def_total, lean_def_sorry, lean_def_verified, lean_def_trans_verified,
+lean_def_trusted, lean_def_failed` (and the same six with a `lean_thm_` prefix)
+
+These are the raw per-kind `verification-status` tallies: `sorry` = `unverified`
+(own body has a `sorry`); `verified` = locally sorry-free but a transitive dep is
+not; `trans_verified` = clean to the trust base; `trusted` = axiom /
+`@[externally_verified]` / `*External.lean`; `failed` = elaboration error. An
+`axiom` is bucketed with theorems. The plot derives `without sorry` and the
+`trust boundary` from these (see Plot).
+
 A blueprint node has two axes (see probe-leanblueprint's `docs/SCHEMA.md`):
 *statement* (`formalized` = the Lean statement/signature exists) and *proof*
 (`fully-proved` = sorry-free). `bp_*_formalized` counts statement-`formalized`
@@ -304,8 +422,8 @@ they sum to `bp_*_formalized`.
 `status` is one of `ok`, `setup_failed`, `checkout_failed`, `extract_failed`,
 `verify_error`, `timeout`, `commit_mismatch`. Only `ok` samples are charted;
 `verify_error` marks a commit that produced no per-function statuses (for
-leanblueprint, a render yielding 0 blueprint nodes) — a visible gap, not a real
-"0 verified" point.
+leanblueprint, a render yielding 0 blueprint nodes; for lean, an extract with 0
+declarations) — a visible gap, not a real "0 verified" point.
 
 ## How it works
 
@@ -313,14 +431,14 @@ Clone once into `--work-clone`, never your own checkout. Bucket commits by
 period, keep the latest in each, always include HEAD. Oldest to newest: `git
 checkout -f`, run extract, then read the freshly written JSON and confirm its
 `source.commit` matches the sample before recording. Verus installs the matching
-release per commit; Aeneas and leanblueprint clean and refetch the Lean build
-when `lean-toolchain` changes. leanblueprint also drops the previous sample's
-Verso render (`_out/site`) each commit, since the tool reuses an existing render
-and `source.commit` is git-derived (so the commit-match guard would not catch a
-stale one). With `--dep-cache-dir`, leanblueprint restores the compiled
-dependency builds (keyed by toolchain + manifest) instead of recompiling them on
-a toolchain change or fresh clone. Failures are recorded with a reason, not
-dropped.
+release per commit; Aeneas, lean, and leanblueprint clean and refetch the Lean
+build when `lean-toolchain` changes. leanblueprint also drops the previous
+sample's Verso render (`_out/site`) each commit, since the tool reuses an existing
+render and `source.commit` is git-derived (so the commit-match guard would not
+catch a stale one); the lean pipeline has no render step. With `--dep-cache-dir`,
+lean and leanblueprint restore the compiled dependency builds (keyed by toolchain
++ manifest) instead of recompiling them on a toolchain change or fresh clone.
+Failures are recorded with a reason, not dropped.
 
 ## Tests
 
