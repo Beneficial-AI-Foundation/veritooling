@@ -65,6 +65,7 @@ class _Node:
         "missing_decls",
         "mismatch",
         "statuses",
+        "kinds",
     )
 
     def __init__(self):
@@ -79,6 +80,10 @@ class _Node:
         # atoms (excludes synthetic `blueprint` atoms, which never carry one).
         # Folded to one node proof-status by `_proof_bucket`.
         self.statuses: list[str] = []
+        # Distinct `blueprint-kind` values seen across this label's atoms. `kind`
+        # is last-write-wins; per-label metadata is expected identical, so >1 here
+        # is a schema surprise worth flagging (it would misclassify def vs thm).
+        self.kinds: set[str] = set()
 
 
 # probe-lean `verification-status` -> node proof-status, most-dominant first.
@@ -155,6 +160,8 @@ def _collect_nodes(data) -> list[_Node]:
             n = _Node()
             nodes[label] = n
         n.kind = atom.get("blueprint-kind", n.kind)
+        if atom.get("blueprint-kind"):
+            n.kinds.add(atom["blueprint-kind"])
         n.statement = atom.get("blueprint-statement-status", n.statement)
         n.proof = atom.get("blueprint-proof-status", n.proof)
         if atom.get("language") != "blueprint" or atom.get("blueprint-shadow"):
@@ -219,6 +226,12 @@ def count_blueprint(envelope: dict) -> dict:
         warnings.append(
             f"proved-confirmed ({thm_proved_confirmed}) > formalized ({thm_formalized}) "
             "-- a proved theorem is not statement-formalized"
+        )
+    kind_conflicts = sum(1 for n in nodes if len(n.kinds) > 1)
+    if kind_conflicts:
+        warnings.append(
+            f"{kind_conflicts} node(s) have conflicting blueprint-kind across atoms "
+            "(kind is last-write-wins; def/thm classification may be wrong)"
         )
 
     # Unknown machine statuses would silently vanish from the buckets; surface them.

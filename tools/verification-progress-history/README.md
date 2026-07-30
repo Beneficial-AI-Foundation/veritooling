@@ -162,15 +162,17 @@ probe-lean-confirmed. `--in-progress`/`--unspecified` are colour-pipeline option
 and are ignored here.
 
 ```bash
-python3 plot_progress.py data/secure-messaging/progress.jsonl --atoms --unspecified --png
+python3 plot_progress.py data/secure-messaging/progress.jsonl --combined --unspecified --png
 ```
 
-`--atoms` (leanblueprint only) draws instead a single **combined** panel that
-puts definitions and theorems in one atom pool, using the FC ("Atom statuses and
-colours") vocabulary: nested frontiers `tracked ≥ verified+trusted ≥ verified`,
-plus zero-based `in-progress` (a `sorry`) and `failed` curves drawn only when
-present (a clean history stays uncluttered); `--unspecified` adds the
-no-Lean-statement curve. The unit is a **blueprint node** (stated in the
+`--combined` (leanblueprint only) draws instead a single **combined** panel that
+pools definitions and theorems (counted as blueprint nodes), using the FC ("Atom
+statuses and colours") vocabulary: nested frontiers
+`tracked ≥ verified+trusted ≥ verified`, plus zero-based `in-progress` (a
+`sorry`), `failed`, and `unrealized` (formalized but no bound atom with a machine
+status — an over-claim) curves drawn only when present (a clean history stays
+uncluttered); `--unspecified` adds the no-Lean-statement curve. The unit is a
+**blueprint node** (stated in the
 subtitle), and the ceiling is a per-sample inventory — it can go down as well as up,
 so this is not a monotonic burn-up. The statement axis (`unspecified` /
 `formalized` ceiling) comes from the blueprint; the proof split
@@ -178,9 +180,9 @@ so this is not a monotonic burn-up. The statement axis (`unspecified` /
 axiom/external; `in-progress` = `unverified`; `failed`) comes from probe-lean's
 own per-atom `verification-status`, rolled up per node by worst status — matching
 `colors.py` so the chart is consistent with the colour burn-up. Writes
-`burnup-atoms.svg` (never overwrites the two-panel `burnup.svg`). Trust is
+`burnup-combined.svg` (never overwrites the two-panel `burnup.svg`). Trust is
 detected only among a node's own bindings, so a green node that leans on an axiom
-in *another* node still reads verified (documented caveat, not a bug). `--atoms`
+in *another* node still reads verified (documented caveat, not a bug). `--combined`
 refuses to plot a history that predates the per-node columns rather than
 rendering them as zero; `--strict` exits non-zero if any sample violates the
 frontier nesting (the warning is stamped into the SVG regardless).
@@ -223,7 +225,7 @@ Unit: a blueprint node, split into a Definitions panel and a Theorems panel.
 - **formalized** — the Lean statement/signature exists (blueprint statement axis).
 - **proved** (theorems only) — sorry-free and probe-lean-confirmed.
 
-**Combined atoms** (`burnup-atoms.svg`, leanblueprint `--atoms` — y-axis
+**Combined** (`burnup-combined.svg`, leanblueprint `--combined` — y-axis
 "blueprint nodes"). Unit: a blueprint node; definitions and theorems pooled. Same
 FC bands as the colour burn-up, but the *statement* axis comes from the blueprint
 and the *proof* status from probe-lean (see subtitle):
@@ -234,6 +236,8 @@ and the *proof* status from probe-lean (see subtitle):
   + `transitively-verified`).
 - **in-progress** — formalized nodes with a `sorry` in a binding (drawn when present).
 - **failed** — formalized nodes with an elaboration error (drawn when present).
+- **unrealized** — formalized nodes with no bound atom carrying a machine status
+  (an over-claim, or a shadow binding) (drawn when present).
 - **unspecified** (`--unspecified`) — nodes with no Lean statement yet.
 Because the unit is a node, sorries in code the blueprint does not track are not
 shown (the Scope caveat above).
@@ -277,7 +281,7 @@ columns above stay blank, as `translated` does for non-Aeneas):
 bp_def_total, bp_def_formalized, bp_thm_total, bp_thm_formalized, bp_thm_proved,
 bp_thm_proved_confirmed`
 
-plus, for the `--atoms` chart, a per-kind probe-lean proof-status partition over
+plus, for the `--combined` chart, a per-kind probe-lean proof-status partition over
 the *formalized* nodes:
 
 `bp_def_verified, bp_def_trusted, bp_def_in_progress, bp_def_failed,
@@ -294,7 +298,8 @@ split every node into bound (has a decl), planned-only (a pure stub), and
 decl-missing (an over-claim). The `bp_*_{verified,trusted,in_progress,failed,
 unrealized}` set partitions the formalized nodes by the probe-lean status rolled
 up from their bound atoms (worst status wins; `unrealized` = formalized but no
-bound decl); per kind they sum to `bp_*_formalized`.
+bound atom carrying a machine status — an over-claim or shadow binding); per kind
+they sum to `bp_*_formalized`.
 
 `status` is one of `ok`, `setup_failed`, `checkout_failed`, `extract_failed`,
 `verify_error`, `timeout`, `commit_mismatch`. Only `ok` samples are charted;

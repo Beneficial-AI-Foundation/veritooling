@@ -1236,7 +1236,13 @@ def main(argv=None):
             # real "0 formalized" data point.
             if metrics["nodes_total"] > 0:
                 record["status"] = "ok"
-                record["reason"] = "; ".join(metrics["warnings"])
+                # Persist warnings and any cross-check diagnostics (labelled, so
+                # they stay distinct) into `reason`, so a claim-vs-status
+                # divergence is visible in the committed history, not only via
+                # `blueprint_progress.py --table`.
+                notes = list(metrics["warnings"])
+                notes += [f"diag: {d}" for d in metrics.get("diagnostics", [])]
+                record["reason"] = "; ".join(notes)
                 if code not in (0, None):
                     record["reason"] = (record["reason"] + f"; extract exit={code}").strip("; ")
                 processed += 1
