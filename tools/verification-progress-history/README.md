@@ -163,6 +163,12 @@ runs a network installer (`--probe-lean-install-cmd` overrides the command, e.g.
 to point at a vetted local `install.sh`); the official installer writes to
 `~/.local/bin`, so `--probe-lean-dir` must resolve there.
 
+**Caveat:** the built-in default fetches `install.sh` from probe-lean's mutable
+`main` branch (`raw.githubusercontent.com/.../probe-lean/main/...`) and pipes it to
+`bash`. For a reproducible or supply-chain-sensitive run, override
+`--probe-lean-install-cmd` to pin a tag/commit (or point at a vetted local
+`install.sh`) rather than relying on whatever `main` holds at run time.
+
 ### A single commit
 
 To (re)sample one commit and update its row, pass `--commit` (repeatable) instead
