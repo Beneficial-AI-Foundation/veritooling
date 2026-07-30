@@ -196,6 +196,18 @@ bound to, nor reachable from, any formalized node) is invisible here. So
 repo has no sorries". Surfacing untracked sorry debt is tracked in
 [#34](https://github.com/Beneficial-AI-Foundation/veritooling/issues/34).
 
+`--interactive` (colour burn-up or `--combined`; not the two-panel blueprint chart)
+additionally writes a standalone `<name>.html` whose legend toggles each series
+on click, with `tracked` and `verified` locked on. It inlines the SVG and a tiny
+vanilla-JS handler — no libraries, no build step. The committed `.svg`/`.png`
+stay untagged and unchanged; interactivity lives only in the `.html`. **Caveat:**
+GitHub strips scripts from rendered SVG/markdown, so the toggles work when the
+`.html` is opened in a browser, not in the GitHub preview. This is a
+proof-of-concept for adapting into VeriLib
+([#37](https://github.com/Beneficial-AI-Foundation/veritooling/issues/37));
+demos: `data/SparsePostQuantumRatchet-verify/burnup-interactive.html` and
+`data/secure-messaging/burnup-combined.html`.
+
 ## How to read the charts
 
 All charts share one vocabulary — **tracked** (the ceiling), **verified +

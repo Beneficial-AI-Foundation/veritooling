@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SparsePostQuantumRatchet — interactive demo</title>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+         margin: 1.5rem; color: #333; }
+  p.hint { color: #777; font-size: 13px; margin: 0 0 .75rem; }
+  .series.off { display: none; }
+  .legend { cursor: pointer; }
+  .legend[data-locked] { cursor: default; }
+  .legend.dim { opacity: .3; }
+</style>
+</head>
+<body>
+<p class="hint">Click a legend entry to show or hide that series.
+<strong>tracked</strong> and <strong>verified</strong> are locked on.</p>
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="460" viewBox="0 0 980 460" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+  <rect width="980" height="460" fill="#FFFFFF" />
+  <text x="64" y="28" font-size="17" font-weight="600" fill="#333333">SparsePostQuantumRatchet — interactive demo</text>
+  <text x="64" y="47" font-size="11" fill="#777777">SparsePostQuantumRatchet-verify · 4 samples · 1 gap(s) omitted · source: progress.jsonl</text>
+  <line x1="64" y1="364.0" x2="770" y2="364.0" stroke="#E4E4E422" />
+  <text x="56" y="368.0" font-size="10" text-anchor="end" fill="#777777">0</text>
+  <line x1="64" y1="304.0" x2="770" y2="304.0" stroke="#E4E4E422" />
+  <text x="56" y="308.0" font-size="10" text-anchor="end" fill="#777777">80</text>
+  <line x1="64" y1="244.0" x2="770" y2="244.0" stroke="#E4E4E422" />
+  <text x="56" y="248.0" font-size="10" text-anchor="end" fill="#777777">160</text>
+  <line x1="64" y1="184.0" x2="770" y2="184.0" stroke="#E4E4E422" />
+  <text x="56" y="188.0" font-size="10" text-anchor="end" fill="#777777">240</text>
+  <line x1="64" y1="124.0" x2="770" y2="124.0" stroke="#E4E4E422" />
+  <text x="56" y="128.0" font-size="10" text-anchor="end" fill="#777777">320</text>
+  <line x1="64" y1="64.0" x2="770" y2="64.0" stroke="#E4E4E422" />
+  <text x="56" y="68.0" font-size="10" text-anchor="end" fill="#777777">400</text>
+  <line x1="64" y1="64" x2="64" y2="364" stroke="#999999" />
+  <line x1="64" y1="364" x2="770" y2="364" stroke="#999999" />
+  <text x="16" y="214.0" font-size="11" fill="#777777" text-anchor="middle" transform="rotate(-90 16 214.0)">atom count</text>
+  <text x="64.0" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 64.0 376.0)">2026-03-20</text>
+  <text x="299.3" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 299.3 376.0)">2026-04-17</text>
+  <text x="534.7" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 534.7 376.0)">2026-05-22</text>
+  <text x="770.0" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 770.0 376.0)">2026-07-17</text>
+  <polygon class="series" data-series="tracked" points="64.0,121.8 299.3,113.5 534.7,113.5 770.0,113.5 770.0,364.0 64.0,364.0" fill="#888899" fill-opacity="0.08" stroke="none" />
+  <polygon class="series" data-series="verified_trusted" points="64.0,364.0 299.3,358.0 534.7,349.8 770.0,318.2 770.0,364.0 64.0,364.0" fill="#7B64B8" fill-opacity="0.12" stroke="none" />
+  <polygon class="series" data-series="verified" points="64.0,364.0 299.3,358.0 534.7,349.8 770.0,318.2 770.0,364.0 64.0,364.0" fill="#1F8A65" fill-opacity="0.16" stroke="none" />
+  <polyline class="series" data-series="tracked" points="64.0,121.8 299.3,113.5 534.7,113.5 770.0,113.5" fill="none" stroke="#888899" stroke-width="2.0" stroke-linejoin="round" />
+  <circle class="series" data-series="tracked" cx="64.0" cy="121.8" r="2.6" fill="#888899" />
+  <circle class="series" data-series="tracked" cx="299.3" cy="113.5" r="2.6" fill="#888899" />
+  <circle class="series" data-series="tracked" cx="534.7" cy="113.5" r="2.6" fill="#888899" />
+  <circle class="series" data-series="tracked" cx="770.0" cy="113.5" r="2.6" fill="#888899" />
+  <polyline class="series" data-series="verified_trusted" points="64.0,364.0 299.3,358.0 534.7,349.8 770.0,318.2" fill="none" stroke="#7B64B8" stroke-width="2.0" stroke-linejoin="round" />
+  <circle class="series" data-series="verified_trusted" cx="64.0" cy="364.0" r="2.6" fill="#7B64B8" />
+  <circle class="series" data-series="verified_trusted" cx="299.3" cy="358.0" r="2.6" fill="#7B64B8" />
+  <circle class="series" data-series="verified_trusted" cx="534.7" cy="349.8" r="2.6" fill="#7B64B8" />
+  <circle class="series" data-series="verified_trusted" cx="770.0" cy="318.2" r="2.6" fill="#7B64B8" />
+  <polyline class="series" data-series="verified" points="64.0,364.0 299.3,358.0 534.7,349.8 770.0,318.2" fill="none" stroke="#1F8A65" stroke-width="2.0" stroke-linejoin="round" />
+  <circle class="series" data-series="verified" cx="64.0" cy="364.0" r="2.6" fill="#1F8A65" />
+  <circle class="series" data-series="verified" cx="299.3" cy="358.0" r="2.6" fill="#1F8A65" />
+  <circle class="series" data-series="verified" cx="534.7" cy="349.8" r="2.6" fill="#1F8A65" />
+  <circle class="series" data-series="verified" cx="770.0" cy="318.2" r="2.6" fill="#1F8A65" />
+  <polyline class="series" data-series="translated" points="64.0,364.0 299.3,202.0 534.7,202.0 770.0,202.0" fill="none" stroke="#2E79B5" stroke-width="2.0" stroke-linejoin="round" />
+  <circle class="series" data-series="translated" cx="64.0" cy="364.0" r="2.6" fill="#2E79B5" />
+  <circle class="series" data-series="translated" cx="299.3" cy="202.0" r="2.6" fill="#2E79B5" />
+  <circle class="series" data-series="translated" cx="534.7" cy="202.0" r="2.6" fill="#2E79B5" />
+  <circle class="series" data-series="translated" cx="770.0" cy="202.0" r="2.6" fill="#2E79B5" />
+  <polyline class="series" data-series="in_progress" points="64.0,364.0 299.3,208.0 534.7,216.3 770.0,247.8" fill="none" stroke="#E8833A" stroke-width="2.0" stroke-linejoin="round" />
+  <circle class="series" data-series="in_progress" cx="64.0" cy="364.0" r="2.6" fill="#E8833A" />
+  <circle class="series" data-series="in_progress" cx="299.3" cy="208.0" r="2.6" fill="#E8833A" />
+  <circle class="series" data-series="in_progress" cx="534.7" cy="216.3" r="2.6" fill="#E8833A" />
+  <circle class="series" data-series="in_progress" cx="770.0" cy="247.8" r="2.6" fill="#E8833A" />
+  <polyline class="series" data-series="unspecified" points="64.0,121.8 299.3,275.5 534.7,275.5 770.0,275.5" fill="none" stroke="#B08D57" stroke-width="2.0" stroke-linejoin="round" />
+  <circle class="series" data-series="unspecified" cx="64.0" cy="121.8" r="2.6" fill="#B08D57" />
+  <circle class="series" data-series="unspecified" cx="299.3" cy="275.5" r="2.6" fill="#B08D57" />
+  <circle class="series" data-series="unspecified" cx="534.7" cy="275.5" r="2.6" fill="#B08D57" />
+  <circle class="series" data-series="unspecified" cx="770.0" cy="275.5" r="2.6" fill="#B08D57" />
+  <rect class="legend" data-series="tracked" data-locked="1" x="786" y="59" width="12" height="12" rx="2" fill="#888899" />
+  <text class="legend" data-series="tracked" data-locked="1" x="804" y="69" font-size="11" fill="#333333">tracked (ceiling)</text>
+  <rect class="legend" data-series="verified_trusted" x="786" y="79" width="12" height="12" rx="2" fill="#7B64B8" />
+  <text class="legend" data-series="verified_trusted" x="804" y="89" font-size="11" fill="#333333">verified + trusted</text>
+  <rect class="legend" data-series="translated" x="786" y="99" width="12" height="12" rx="2" fill="#2E79B5" />
+  <text class="legend" data-series="translated" x="804" y="109" font-size="11" fill="#333333">translated (Aeneas)</text>
+  <rect class="legend" data-series="verified" data-locked="1" x="786" y="119" width="12" height="12" rx="2" fill="#1F8A65" />
+  <text class="legend" data-series="verified" data-locked="1" x="804" y="129" font-size="11" fill="#333333">verified</text>
+  <rect class="legend" data-series="in_progress" x="786" y="139" width="12" height="12" rx="2" fill="#E8833A" />
+  <text class="legend" data-series="in_progress" x="804" y="149" font-size="11" fill="#333333">in-progress (sorry/assume)</text>
+  <rect class="legend" data-series="unspecified" x="786" y="159" width="12" height="12" rx="2" fill="#B08D57" />
+  <text class="legend" data-series="unspecified" x="804" y="169" font-size="11" fill="#333333">unspecified (no spec)</text>
+</svg>
+
+<script>
+(function () {
+  function bySeries(cls, key) {
+    return document.querySelectorAll('.' + cls + '[data-series="' + key + '"]');
+  }
+  document.querySelectorAll('.legend[data-series]').forEach(function (el) {
+    el.addEventListener('click', function () {
+      if (el.hasAttribute('data-locked')) return;
+      var key = el.getAttribute('data-series');
+      var series = bySeries('series', key);
+      if (!series.length) return;
+      var hide = !series[0].classList.contains('off');
+      series.forEach(function (s) { s.classList.toggle('off', hide); });
+      bySeries('legend', key).forEach(function (l) { l.classList.toggle('dim', hide); });
+    });
+  });
+})();
+</script>
+</body>
+</html>

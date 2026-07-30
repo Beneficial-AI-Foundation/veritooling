@@ -232,3 +232,49 @@ def test_combined_strict_exits_nonzero_on_violation(tmp_path):
     p.write_text(json.dumps(_bpa("2026-07-22", bp_def_verified=200)) + "\n")
     assert pp.main([str(p), "--combined"]) == 0  # still renders (warning only)
     assert pp.main([str(p), "--combined", "--strict"]) == 3  # strict escalates to nonzero
+
+
+# --------------------------------------------------------------------------- #
+# Interactive (--interactive) HTML proof-of-concept
+# --------------------------------------------------------------------------- #
+def test_series_tagging_off_by_default():
+    # The static SVG must stay clean (no toggle attributes) so committed charts
+    # are unchanged.
+    assert "data-series" not in pp.burnup_svg([_ok("2026-01-02")], "t", "s")
+
+
+def test_series_tagging_and_locked_baseline_when_interactive():
+    svg = pp.burnup_svg([_ok("2026-01-02")], "t", "s", interactive=True)
+    assert 'data-series="verified"' in svg and 'data-series="tracked"' in svg
+    # tracked + verified are the locked baseline (rect + text each) -> 4 marks.
+    assert svg.count('data-locked="1"') == 4
+
+
+def test_interactive_html_wraps_svg_with_toggle_script():
+    svg = pp.burnup_svg([_ok("2026-01-02")], "t", "s", interactive=True)
+    html = pp.interactive_html(svg, "demo")
+    assert "<svg" in html and "addEventListener" in html
+    assert ".series.off" in html  # the toggle CSS hook
+    assert "<title>demo</title>" in html
+
+
+def test_main_interactive_writes_html_and_keeps_svg_clean(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps(_ok("2026-01-02")) + "\n")
+    assert pp.main([str(p), "--interactive"]) == 0
+    assert (tmp_path / "burnup.html").is_file()
+    assert "data-series" not in (tmp_path / "burnup.svg").read_text()
+
+
+def test_main_interactive_combined_writes_html(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps(_bpa("2026-07-22")) + "\n")
+    assert pp.main([str(p), "--combined", "--interactive"]) == 0
+    assert (tmp_path / "burnup-combined.html").is_file()
+
+
+def test_main_interactive_unsupported_for_two_panel_blueprint(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps(_bp("2026-07-22")) + "\n")  # two-panel (no --combined)
+    assert pp.main([str(p), "--interactive"]) == 0
+    assert not (tmp_path / "burnup.html").exists()  # skipped, no html

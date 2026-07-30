@@ -70,7 +70,7 @@ INT_FIELDS = (
     "bp_nodes_total bp_nodes_bound bp_nodes_planned bp_nodes_decl_missing "
     "bp_def_total bp_def_formalized "
     "bp_thm_total bp_thm_formalized bp_thm_proved bp_thm_proved_confirmed "
-    # probe-lean proof-status partition over the formalized nodes (--atoms mode)
+    # probe-lean proof-status partition over the formalized nodes (--combined mode)
     "bp_def_verified bp_def_trusted bp_def_in_progress bp_def_failed bp_def_unrealized "
     "bp_thm_verified bp_thm_trusted bp_thm_in_progress bp_thm_failed bp_thm_unrealized"
 ).split()
@@ -128,15 +128,29 @@ def nice_ceiling(v: int) -> int:
 class Plot:
     """Minimal SVG line/area plotter with a shared coordinate system."""
 
-    def __init__(self, categories, y_max, title, subtitle, y_label):
+    def __init__(self, categories, y_max, title, subtitle, y_label, interactive=False):
         self.cats = categories
         self.y_max = y_max
         self.title = title
         self.subtitle = subtitle
         self.y_label = y_label
+        # When True, series get `class="series" data-series=KEY` (and legend items
+        # `class="legend" ...`) so an HTML wrapper can toggle them in JS. Off by
+        # default, so the committed static SVGs are byte-identical.
+        self.interactive = interactive
         self.W, self.H = 980, 460
         self.ml, self.mr, self.mt, self.mb = 64, 210, 64, 96
         self.parts: list[str] = []
+
+    def _tag(self, key, *, legend=False, locked=False) -> str:
+        """Attributes tying an element to a togglable series (interactive only)."""
+        if not self.interactive or key is None:
+            return ""
+        cls = "legend" if legend else "series"
+        attr = f' class="{cls}" data-series="{key}"'
+        if legend and locked:
+            attr += ' data-locked="1"'
+        return attr
 
     @property
     def plot_w(self):
@@ -204,36 +218,44 @@ class Plot:
                 f'transform="rotate(-40 {xx:.1f} {yy:.1f})">{esc(c)}</text>'
             )
 
-    def area(self, values, color, opacity=0.12):
+    def area(self, values, color, opacity=0.12, key=None):
         pts = " ".join(f"{self.x(i):.1f},{self.y(v):.1f}" for i, v in enumerate(values))
         base = f"{self.x(len(values) - 1):.1f},{self.y(0):.1f} {self.x(0):.1f},{self.y(0):.1f}"
         self.parts.append(
-            f'<polygon points="{pts} {base}" fill="{color}" '
+            f'<polygon{self._tag(key)} points="{pts} {base}" fill="{color}" '
             f'fill-opacity="{opacity}" stroke="none" />'
         )
 
-    def line(self, values, color, width=2.0, dots=True):
+    def line(self, values, color, width=2.0, dots=True, key=None):
+        tag = self._tag(key)
         pts = " ".join(f"{self.x(i):.1f},{self.y(v):.1f}" for i, v in enumerate(values))
         self.parts.append(
-            f'<polyline points="{pts}" fill="none" stroke="{color}" '
+            f'<polyline{tag} points="{pts}" fill="none" stroke="{color}" '
             f'stroke-width="{width}" stroke-linejoin="round" />'
         )
         if dots:
             for i, v in enumerate(values):
                 self.parts.append(
-                    f'<circle cx="{self.x(i):.1f}" cy="{self.y(v):.1f}" r="2.6" fill="{color}" />'
+                    f'<circle{tag} cx="{self.x(i):.1f}" cy="{self.y(v):.1f}" '
+                    f'r="2.6" fill="{color}" />'
                 )
 
     def legend(self, entries):
+        """Entries are ``(label, color)`` or ``(label, color, key[, locked])``; the
+        key/locked fields drive interactive toggling and are ignored otherwise."""
         lx = self.ml + self.plot_w + 16
         ly = self.mt + 4
-        for i, (label, color) in enumerate(entries):
+        for i, entry in enumerate(entries):
+            label, color = entry[0], entry[1]
+            key = entry[2] if len(entry) > 2 else None
+            locked = entry[3] if len(entry) > 3 else False
+            tag = self._tag(key, legend=True, locked=locked)
             yy = ly + i * 20
             self.parts.append(
-                f'<rect x="{lx}" y="{yy - 9}" width="12" height="12" rx="2" fill="{color}" />'
+                f'<rect{tag} x="{lx}" y="{yy - 9}" width="12" height="12" rx="2" fill="{color}" />'
             )
             self.parts.append(
-                f'<text x="{lx + 18}" y="{yy + 1}" font-size="11" '
+                f'<text{tag} x="{lx + 18}" y="{yy + 1}" font-size="11" '
                 f'fill="{COL["text"]}">{esc(label)}</text>'
             )
 
@@ -277,7 +299,9 @@ def _compose_panels(panels: list[Plot]) -> str:
     )
 
 
-def burnup_svg(ok, title, subtitle, show_in_progress=False, show_unspecified=False) -> str:
+def burnup_svg(
+    ok, title, subtitle, show_in_progress=False, show_unspecified=False, interactive=False
+) -> str:
     cats = [r["sample_date"] for r in ok]
     tracked = [r["tracked"] for r in ok]
     vt = [r["verified_trusted"] for r in ok]
@@ -286,23 +310,24 @@ def burnup_svg(ok, title, subtitle, show_in_progress=False, show_unspecified=Fal
     has_translated = any(translated)
 
     y_max = nice_ceiling(max(tracked) if tracked else 0)
-    plot = Plot(cats, y_max, title, subtitle, "atom count")
+    plot = Plot(cats, y_max, title, subtitle, "atom count", interactive=interactive)
     plot.axes()
     # Largest area first so nested bands read correctly.
-    plot.area(tracked, COL["tracked"], 0.08)
-    plot.area(vt, COL["verified_trusted"], 0.12)
-    plot.area(verified, COL["verified"], 0.16)
-    plot.line(tracked, COL["tracked"])
-    plot.line(vt, COL["verified_trusted"])
-    plot.line(verified, COL["verified"])
+    plot.area(tracked, COL["tracked"], 0.08, key="tracked")
+    plot.area(vt, COL["verified_trusted"], 0.12, key="verified_trusted")
+    plot.area(verified, COL["verified"], 0.16, key="verified")
+    plot.line(tracked, COL["tracked"], key="tracked")
+    plot.line(vt, COL["verified_trusted"], key="verified_trusted")
+    plot.line(verified, COL["verified"], key="verified")
+    # `tracked` and `verified` are the baseline: locked on in interactive mode.
     legend = [
-        ("tracked (ceiling)", COL["tracked"]),
-        ("verified + trusted", COL["verified_trusted"]),
-        ("verified", COL["verified"]),
+        ("tracked (ceiling)", COL["tracked"], "tracked", True),
+        ("verified + trusted", COL["verified_trusted"], "verified_trusted"),
+        ("verified", COL["verified"], "verified", True),
     ]
     if has_translated:
-        plot.line(translated, COL["translated"])
-        legend.insert(2, ("translated (Aeneas)", COL["translated"]))
+        plot.line(translated, COL["translated"], key="translated")
+        legend.insert(2, ("translated (Aeneas)", COL["translated"], "translated"))
     # Optional status curves, drawn from zero. These are the doc's atom-status
     # counts (colours.py), NOT the frontier gap: the "in-progress" atom status
     # is specifically `yellow` (an incomplete proof — sorry / assume), and it is
@@ -311,19 +336,19 @@ def burnup_svg(ok, title, subtitle, show_in_progress=False, show_unspecified=Fal
     # would conflate the two — so we plot each status on its own line.
     if show_in_progress:
         yellow = [r["yellow"] for r in ok]
-        plot.line(yellow, COL["in_progress"])
-        legend.append(("in-progress (sorry/assume)", COL["in_progress"]))
+        plot.line(yellow, COL["in_progress"], key="in_progress")
+        legend.append(("in-progress (sorry/assume)", COL["in_progress"], "in_progress"))
     if show_unspecified:
         white = [r["white"] for r in ok]
-        plot.line(white, COL["unspecified"])
-        legend.append(("unspecified (no spec)", COL["unspecified"]))
+        plot.line(white, COL["unspecified"], key="unspecified")
+        legend.append(("unspecified (no spec)", COL["unspecified"], "unspecified"))
     # `red` (a failed verification) is auto-drawn when present, like `translated`:
     # it is a rare but critical status that should never sit hidden in the gap, so
     # it needs no opt-in flag, and stays absent (no clutter) when nothing failed.
     red = [r["red"] for r in ok]
     if any(red):
-        plot.line(red, COL["failed"])
-        legend.append(("failed", COL["failed"]))
+        plot.line(red, COL["failed"], key="failed")
+        legend.append(("failed", COL["failed"], "failed"))
     plot.legend(legend)
     return plot.svg()
 
@@ -370,7 +395,7 @@ def blueprint_svg(ok, base_title, subtitle) -> str:
     return _compose_panels([defs, thms])
 
 
-def combined_svg(ok, base_title, subtitle, show_unspecified=False):
+def combined_svg(ok, base_title, subtitle, show_unspecified=False, interactive=False):
     """One panel putting definitions and theorems on a single FC-style chart,
     counting every blueprint node (the y-axis unit).
 
@@ -412,37 +437,38 @@ def combined_svg(ok, base_title, subtitle, show_unspecified=False):
                 warnings.append(f"{d}: {name} ({series[i]}) exceeds tracked ({tracked[i]})")
 
     y_max = nice_ceiling(max(tracked) if tracked else 0)
-    plot = Plot(cats, y_max, f"{base_title} — combined", subtitle, "blueprint nodes")
+    plot = Plot(cats, y_max, f"{base_title} — combined", subtitle, "blueprint nodes", interactive)
     plot.axes()
     # Nested frontiers, largest area first.
-    plot.area(tracked, COL["tracked"], 0.08)
-    plot.area(verified_trusted, COL["verified_trusted"], 0.12)
-    plot.area(verified, COL["verified"], 0.16)
-    plot.line(tracked, COL["tracked"])
-    plot.line(verified_trusted, COL["verified_trusted"])
-    plot.line(verified, COL["verified"])
+    plot.area(tracked, COL["tracked"], 0.08, key="tracked")
+    plot.area(verified_trusted, COL["verified_trusted"], 0.12, key="verified_trusted")
+    plot.area(verified, COL["verified"], 0.16, key="verified")
+    plot.line(tracked, COL["tracked"], key="tracked")
+    plot.line(verified_trusted, COL["verified_trusted"], key="verified_trusted")
+    plot.line(verified, COL["verified"], key="verified")
     # Band names match the FC colour burn-up (burnup_svg) so the two charts read
     # with one vocabulary; the node-vs-atom unit and blueprint-vs-probe-lean
-    # provenance live in the subtitle and the "How to read" docs.
+    # provenance live in the subtitle and the "How to read" docs. `tracked` and
+    # `verified` are the baseline: locked on in interactive mode.
     legend = [
-        ("tracked (ceiling)", COL["tracked"]),
-        ("verified + trusted", COL["verified_trusted"]),
-        ("verified", COL["verified"]),
+        ("tracked (ceiling)", COL["tracked"], "tracked", True),
+        ("verified + trusted", COL["verified_trusted"], "verified_trusted"),
+        ("verified", COL["verified"], "verified", True),
     ]
     # Zero-based status curves, drawn only when present (like `translated` /
     # `failed` on the colour burn-up) so a clean history stays uncluttered.
     if any(in_progress):
-        plot.line(in_progress, COL["in_progress"])
-        legend.append(("in-progress (sorry/assume)", COL["in_progress"]))
+        plot.line(in_progress, COL["in_progress"], key="in_progress")
+        legend.append(("in-progress (sorry/assume)", COL["in_progress"], "in_progress"))
     if any(failed):
-        plot.line(failed, COL["failed"])
-        legend.append(("failed", COL["failed"]))
+        plot.line(failed, COL["failed"], key="failed")
+        legend.append(("failed", COL["failed"], "failed"))
     if any(unrealized):
-        plot.line(unrealized, COL["unrealized"])
-        legend.append(("unrealized (no bound status)", COL["unrealized"]))
+        plot.line(unrealized, COL["unrealized"], key="unrealized")
+        legend.append(("unrealized (no bound status)", COL["unrealized"], "unrealized"))
     if show_unspecified:
-        plot.line(unspecified, COL["unspecified"])
-        legend.append(("unspecified (no statement)", COL["unspecified"]))
+        plot.line(unspecified, COL["unspecified"], key="unspecified")
+        legend.append(("unspecified (no statement)", COL["unspecified"], "unspecified"))
     plot.legend(legend)
     # Stamp nesting warnings into the image rather than clamping the bands.
     for j, w in enumerate(warnings[:3]):
@@ -451,6 +477,60 @@ def combined_svg(ok, base_title, subtitle, show_unspecified=False):
             f'<text x="{plot.ml}" y="{yy}" font-size="10" fill="{COL["failed"]}">⚠ {esc(w)}</text>'
         )
     return plot.svg(), warnings
+
+
+# Standalone interactive HTML: inline the (series-tagged) SVG and toggle series on
+# a legend click, with `tracked`/`verified` locked on. Vanilla JS, no libraries.
+# NOTE: proof-of-concept for adapting into VeriLib — GitHub strips scripts from
+# rendered SVG, so the toggles only work when the .html is opened in a browser.
+# A plain template (not an f-string) so the JS/CSS braces stay unescaped.
+_INTERACTIVE_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>__TITLE__</title>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+         margin: 1.5rem; color: #333; }
+  p.hint { color: #777; font-size: 13px; margin: 0 0 .75rem; }
+  .series.off { display: none; }
+  .legend { cursor: pointer; }
+  .legend[data-locked] { cursor: default; }
+  .legend.dim { opacity: .3; }
+</style>
+</head>
+<body>
+<p class="hint">Click a legend entry to show or hide that series.
+<strong>tracked</strong> and <strong>verified</strong> are locked on.</p>
+__SVG__
+<script>
+(function () {
+  function bySeries(cls, key) {
+    return document.querySelectorAll('.' + cls + '[data-series="' + key + '"]');
+  }
+  document.querySelectorAll('.legend[data-series]').forEach(function (el) {
+    el.addEventListener('click', function () {
+      if (el.hasAttribute('data-locked')) return;
+      var key = el.getAttribute('data-series');
+      var series = bySeries('series', key);
+      if (!series.length) return;
+      var hide = !series[0].classList.contains('off');
+      series.forEach(function (s) { s.classList.toggle('off', hide); });
+      bySeries('legend', key).forEach(function (l) { l.classList.toggle('dim', hide); });
+    });
+  });
+})();
+</script>
+</body>
+</html>
+"""
+
+
+def interactive_html(svg: str, title: str) -> str:
+    """Wrap a series-tagged SVG (``interactive=True``) in a standalone HTML page
+    with a click-to-toggle legend. See ``_INTERACTIVE_HTML``."""
+    return _INTERACTIVE_HTML.replace("__TITLE__", esc(title)).replace("__SVG__", svg)
 
 
 # SVG->PNG converters tried in order (first on PATH wins). The SVG is always the
@@ -540,6 +620,14 @@ def parse_args(argv):
         "nesting (the warning is stamped into the SVG either way).",
     )
     p.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Also write a standalone .html next to the SVG whose legend toggles "
+        "series on click (tracked/verified locked on). Vanilla JS, no deps; a "
+        "proof-of-concept for VeriLib. Not supported for the two-panel blueprint "
+        "chart. Note: GitHub strips SVG scripts, so open the .html in a browser.",
+    )
+    p.add_argument(
         "--png",
         action="store_true",
         help="Also write a PNG alongside the SVG (needs rsvg-convert, "
@@ -579,6 +667,7 @@ def main(argv=None) -> int:
         return 2
 
     combined_warnings: list[str] = []
+    interactive_svg: str | None = None  # tagged SVG for the --interactive .html
     if pipeline == "leanblueprint" and args.combined:
         # Refuse to plot silent-zero curves on a history predating the columns:
         # check the raw rows (pre-coercion), so absent != 0.
@@ -607,11 +696,21 @@ def main(argv=None) -> int:
         svg, combined_warnings = combined_svg(
             ok, args.title or repo, combined_subtitle, show_unspecified=args.unspecified
         )
+        if args.interactive:
+            interactive_svg = combined_svg(
+                ok, args.title or repo, combined_subtitle, args.unspecified, interactive=True
+            )[0]
     elif pipeline == "leanblueprint":
         if args.in_progress or args.unspecified:
             print(
                 "[note] --in-progress/--unspecified are colour-pipeline options; "
                 "ignored for leanblueprint (use --combined for the combined chart).",
+                file=sys.stderr,
+            )
+        if args.interactive:
+            print(
+                "[note] --interactive is not supported for the two-panel blueprint "
+                "chart; use --combined for an interactive combined chart.",
                 file=sys.stderr,
             )
         svg = blueprint_svg(ok, args.title or repo, subtitle)
@@ -624,6 +723,10 @@ def main(argv=None) -> int:
             show_in_progress=args.in_progress,
             show_unspecified=args.unspecified,
         )
+        if args.interactive:
+            interactive_svg = burnup_svg(
+                ok, title, subtitle, args.in_progress, args.unspecified, interactive=True
+            )
     # Default alongside the input: data/<name>/progress.jsonl -> .../burnup.svg.
     # --combined writes a distinct stem so it never overwrites the two-panel chart.
     kind = "burnup-combined" if args.combined else "burnup"
@@ -633,6 +736,10 @@ def main(argv=None) -> int:
     print(f"wrote {out}")
     if args.png:
         svg_to_png(out, out.with_suffix(".png"), args.png_scale)
+    if interactive_svg is not None:
+        html_out = out.with_suffix(".html")
+        html_out.write_text(interactive_html(interactive_svg, args.title or repo))
+        print(f"wrote {html_out}")
     for w in combined_warnings:
         print(f"[warn] {w}", file=sys.stderr)
     if combined_warnings and args.strict:
