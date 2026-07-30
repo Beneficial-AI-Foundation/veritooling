@@ -90,6 +90,18 @@ BLUEPRINT_METRIC_KEYS = [
     "thm_formalized",
     "thm_proved",
     "thm_proved_confirmed",
+    # Per-kind probe-lean proof-status partition over the formalized nodes
+    # (the combined-atoms chart). See blueprint_progress._kind_buckets.
+    "def_verified",
+    "def_trusted",
+    "def_in_progress",
+    "def_failed",
+    "def_unrealized",
+    "thm_verified",
+    "thm_trusted",
+    "thm_in_progress",
+    "thm_failed",
+    "thm_unrealized",
 ]
 BLUEPRINT_FIELDS = [f"bp_{k}" for k in BLUEPRINT_METRIC_KEYS]
 RECORD_FIELDS = (
@@ -1224,7 +1236,13 @@ def main(argv=None):
             # real "0 formalized" data point.
             if metrics["nodes_total"] > 0:
                 record["status"] = "ok"
-                record["reason"] = "; ".join(metrics["warnings"])
+                # Persist warnings and any cross-check diagnostics (labelled, so
+                # they stay distinct) into `reason`, so a claim-vs-status
+                # divergence is visible in the committed history, not only via
+                # `blueprint_progress.py --table`.
+                notes = list(metrics["warnings"])
+                notes += [f"diag: {d}" for d in metrics.get("diagnostics", [])]
+                record["reason"] = "; ".join(notes)
                 if code not in (0, None):
                     record["reason"] = (record["reason"] + f"; extract exit={code}").strip("; ")
                 processed += 1
