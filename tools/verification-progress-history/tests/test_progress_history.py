@@ -295,14 +295,14 @@ def test_probe_lean_setup_failed_install_not_retried(tmp_path):
     args = types.SimpleNamespace(
         probe_lean_dir=bindir,
         install_probe_lean=True,
-        probe_lean_install_cmd="exit 1",  # installer that always fails
+        probe_lean_install_cmd="false {version}",  # valid template, install always fails
         setup_timeout=60,
     )
     state = {"managed_bin": managed}
     r1 = ph.probe_lean_setup(project, args, state)
     assert r1 and "install failed" in r1
     # Second sample, same version: install is not retried, but still reports missing.
-    args.probe_lean_install_cmd = "exit 1"
+    args.probe_lean_install_cmd = "false {version}"
     r2 = ph.probe_lean_setup(project, args, state)
     assert r2 and "no probe-lean-v4.30.0" in r2
     assert state["install_attempted"] == {"v4.30.0"}
