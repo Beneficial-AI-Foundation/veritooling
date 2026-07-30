@@ -17,6 +17,7 @@ def _ok(date, **over):
         "translated": 0,
         "yellow": 30,
         "white": 25,
+        "red": 0,
     }
     rec.update(over)
     return rec
@@ -63,6 +64,14 @@ def test_translated_line_only_for_aeneas():
     assert "translated (Aeneas)" not in pp.burnup_svg([_ok("2026-01-02")], "t", "s")
     ok = [_ok("2026-01-02", translated=20)]
     assert "translated (Aeneas)" in pp.burnup_svg(ok, "t", "s")
+
+
+def test_failed_line_auto_drawn_only_when_present():
+    # No failures -> no red curve (no flag, no clutter).
+    assert ">failed<" not in pp.burnup_svg([_ok("2026-01-02", red=0)], "t", "s")
+    # Any red -> the failed curve appears automatically, like `translated`.
+    ok = [_ok("2026-01-02", red=0), _ok("2026-02-06", red=3)]
+    assert ">failed</text>" in pp.burnup_svg(ok, "t", "s")
 
 
 def test_main_default_output_name(tmp_path):
@@ -151,6 +160,30 @@ def _ln(date, **over):
     return rec
 
 
+# --------------------------------------------------------------------------- #
+# Combined (--combined) chart
+# --------------------------------------------------------------------------- #
+def _bpa(date, **over):
+    """A leanblueprint record with the per-node proof-status columns populated."""
+    rec = _bp(date)
+    rec.update(
+        {
+            "bp_def_verified": 20,
+            "bp_def_trusted": 0,
+            "bp_def_in_progress": 0,
+            "bp_def_failed": 0,
+            "bp_def_unrealized": 1,
+            "bp_thm_verified": 8,
+            "bp_thm_trusted": 0,
+            "bp_thm_in_progress": 1,
+            "bp_thm_failed": 0,
+            "bp_thm_unrealized": 0,
+        }
+    )
+    rec.update(over)
+    return rec
+
+
 def test_lean_two_panels_and_legends():
     ok = [_ln("2026-05-01", lean_thm_sorry=5, lean_thm_trans_verified=32), _ln("2026-07-29")]
     svg = pp.lean_svg(ok, "KVAC", "sub")
@@ -174,3 +207,76 @@ def test_load_records_coerces_lean_fields(tmp_path):
     p.write_text(json.dumps({"status": "ok", "lean_thm_total": "37", "lean_thm_sorry": ""}) + "\n")
     (rec,) = pp.load_records(p)
     assert rec["lean_thm_total"] == 37 and rec["lean_thm_sorry"] == 0
+
+
+def test_combined_single_panel_and_fc_aligned_legend():
+    ok = [_bpa("2026-06-24", bp_thm_verified=4), _bpa("2026-07-22")]  # thm_in_progress=1
+    svg, warns = pp.combined_svg(ok, "secure-messaging", "sub", show_unspecified=True)
+    assert warns == []
+    assert svg.count("<svg") == 1  # one panel, not two
+    assert "— combined" in svg
+    # Band names match the FC colour burn-up vocabulary.
+    assert "tracked (ceiling)" in svg
+    assert "verified + trusted" in svg
+    assert "in-progress (sorry/assume)" in svg  # present -> drawn
+    assert "unrealized (no bound status)" in svg  # _bpa has bp_def_unrealized=1
+    assert "unspecified (no statement)" in svg
+    # The unit stays explicit via the y-axis label (not the FC "atom count").
+    assert "blueprint nodes" in svg
+
+
+def test_combined_status_curves_only_when_present():
+    # A fully clean history: no in-progress / failed / unrealized -> no curves.
+    clean = [
+        _bpa(
+            "2026-07-22",
+            bp_thm_in_progress=0,
+            bp_def_failed=0,
+            bp_thm_failed=0,
+            bp_def_unrealized=0,
+        )
+    ]
+    svg, _ = pp.combined_svg(clean, "t", "s")
+    assert "in-progress (sorry/assume)" not in svg
+    assert ">failed</text>" not in svg
+    assert "unrealized" not in svg
+    # A failure / an over-claim -> the curve appears automatically.
+    svg2, _ = pp.combined_svg([_bpa("2026-07-22", bp_def_failed=2)], "t", "s")
+    assert ">failed</text>" in svg2
+    assert "unrealized (no bound status)" in svg2  # _bpa default bp_def_unrealized=1
+
+
+def test_combined_nesting_violation_warns_and_stamps():
+    # verified impossibly large -> verified+trusted exceeds tracked.
+    ok = [_bpa("2026-07-22", bp_def_verified=200)]
+    svg, warns = pp.combined_svg(ok, "t", "s")
+    assert warns and "nesting violated" in warns[0]
+    assert "⚠" in svg  # rendered honestly with a stamped warning, not clamped
+
+
+def test_combined_wrong_pipeline_errors(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps(_ok("2026-01-02")) + "\n")  # colour pipeline record
+    assert pp.main([str(p), "--combined"]) == 2
+
+
+def test_combined_refuses_history_missing_columns(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps(_bp("2026-07-22")) + "\n")  # old leanblueprint row, no bp_*_verified
+    assert pp.main([str(p), "--combined"]) == 2  # must not silently render zeros
+    assert not (tmp_path / "burnup-combined.svg").exists()
+
+
+def test_combined_output_filename_distinct(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps(_bpa("2026-07-22")) + "\n")
+    assert pp.main([str(p), "--combined"]) == 0
+    assert (tmp_path / "burnup-combined.svg").is_file()
+    assert not (tmp_path / "burnup.svg").exists()  # never overwrites the two-panel chart
+
+
+def test_combined_strict_exits_nonzero_on_violation(tmp_path):
+    p = tmp_path / "progress.jsonl"
+    p.write_text(json.dumps(_bpa("2026-07-22", bp_def_verified=200)) + "\n")
+    assert pp.main([str(p), "--combined"]) == 0  # still renders (warning only)
+    assert pp.main([str(p), "--combined", "--strict"]) == 3  # strict escalates to nonzero
