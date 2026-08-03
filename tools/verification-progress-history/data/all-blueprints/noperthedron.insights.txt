@@ -1,0 +1,36 @@
+Source: https://github.com/jcreedcmu/Noperthedron.git @ 83502054
+
+Theorem entries: 59
+  claimed (blueprint's own bookkeeping):
+    closed:            37
+    incomplete-deps:   14
+    sorry:             0
+    no-proof:          8
+  machine (probe-lean cross-check):
+    closed:            37
+    incomplete-deps:   14
+    sorry:             0
+    no-proof:          8
+
+Ready now (statement ready, deps formalized): 7
+  «corr:deltakappa»
+  «def:pointsymmetrize»
+  «lem:leq1»
+  «lem:n2»
+  «lemma:pointsymmetrization_is_pointsym»
+  «thm:exists_solution_table»
+  «thm:polyhedron_radius_iff»
+
+Most used (top entries by downstream unlocks):
+  «lem:RxRy»                               downstream=19   stmt-uses=0 proof-uses=2
+  «dfn:sin_cos_approx»                     downstream=19   stmt-uses=1 proof-uses=0
+  «lem:sqrt2»                              downstream=18   stmt-uses=0 proof-uses=6
+  «lem:sin27cos26»                         downstream=18   stmt-uses=0 proof-uses=1
+  «lem:kappa7»                             downstream=17   stmt-uses=0 proof-uses=1
+  «lem:A_le_deltamn»                       downstream=17   stmt-uses=0 proof-uses=1
+  «lem:A1AnB1Bn»                           downstream=16   stmt-uses=0 proof-uses=3
+  «lem:RaRalpha»                           downstream=16   stmt-uses=0 proof-uses=2
+  «lem:dist_le_kappa»                      downstream=16   stmt-uses=0 proof-uses=1
+  «corr:kappa1kappa»                       downstream=15   stmt-uses=0 proof-uses=3
+
+Missing informal coverage: not checked (no --manifest given)
