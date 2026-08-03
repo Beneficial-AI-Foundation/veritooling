@@ -69,10 +69,10 @@ stated and 9 have complete, probe-lean-confirmed sorry-free proofs.
   meaning (statement written); the definition/theorem difference is carried by
   theorems having a second milestone (`Proved`) that definitions lack.
 
-## Combined-atoms chart (`plot_progress.py --atoms`)
+## Combined chart (`plot_progress.py --combined`)
 
 The two-panel chart above keys definitions and theorems off the **blueprint**
-axes. The combined chart instead puts every node in one atom pool and takes the
+axes. The combined chart instead pools every node into one panel and takes the
 proof status from **probe-lean**, using the FC ("Atom statuses and colours")
 vocabulary. Each formalized node's bound-atom `verification-status` values are
 rolled up to one node status by worst-status precedence:
@@ -88,7 +88,7 @@ out of strict `verified`). Every node then lands in exactly one bucket:
 | bucket | meaning |
 |--------|---------|
 | **unspecified** | statement not `formalized` (no Lean statement yet) |
-| **unrealized** | `formalized` but no bound decl (a planned/decl-missing over-claim) |
+| **unrealized** | `formalized` but no bound atom carrying a machine status (a decl-missing over-claim, or a shadow binding) |
 | **in-progress** | `formalized`, a bound atom is `unverified` (a `sorry`) |
 | **failed** | `formalized`, a bound atom `failed` to elaborate |
 | **verified** | `formalized`, all bound atoms green (verified / transitively-verified) |

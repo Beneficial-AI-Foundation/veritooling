@@ -175,6 +175,20 @@ def test_blueprint_fields_in_record_schema():
     assert ph.BLUEPRINT_FIELDS == [f"bp_{k}" for k in ph.BLUEPRINT_METRIC_KEYS]
 
 
+def test_lean_fields_in_record_schema():
+    # lean_* columns exist, are blank by default (like bp_*), and count_lean's keys
+    # round-trip through the lean_ prefix.
+    assert "lean_thm_sorry" in ph.RECORD_FIELDS and "lean_def_total" in ph.RECORD_FIELDS
+    blanks = ph.blank_metrics()
+    assert all(blanks[f] == "" for f in ph.LEAN_FIELDS)
+    assert ph.LEAN_FIELDS == [f"lean_{k}" for k in ph.LEAN_METRIC_KEYS]
+
+
+def test_plain_lean_pipeline_is_supported():
+    # The `lean` pipeline is accepted (not rejected like an unknown pipeline).
+    assert ph.parse_args(["some/repo", "--pipeline", "lean"]).pipeline == "lean"
+
+
 def test_lean_version_from_toolchain():
     assert ph._lean_version_from_toolchain("leanprover/lean4:v4.30.0") == "v4.30.0"
     assert ph._lean_version_from_toolchain("leanprover/lean4:v4.29.0-rc4") == "v4.29.0-rc4"
@@ -182,7 +196,7 @@ def test_lean_version_from_toolchain():
     assert ph._lean_version_from_toolchain(None) is None
 
 
-def test_leanblueprint_setup_selects_matching_probe_lean(tmp_path):
+def test_probe_lean_setup_selects_matching_probe_lean(tmp_path):
     import types
 
     project = tmp_path / "proj"
@@ -198,13 +212,13 @@ def test_leanblueprint_setup_selects_matching_probe_lean(tmp_path):
     args = types.SimpleNamespace(probe_lean_dir=bindir)
     state = {"managed_bin": managed}
 
-    assert ph.leanblueprint_setup(project, args, state) is None
+    assert ph.probe_lean_setup(project, args, state) is None
     link = managed / "probe-lean"
     assert link.is_symlink() and link.resolve() == target.resolve()
     assert state["probe_lean_version"] == "v4.30.0"
 
 
-def test_leanblueprint_setup_missing_version_reports(tmp_path):
+def test_probe_lean_setup_missing_version_reports(tmp_path):
     import types
 
     project = tmp_path / "proj"
@@ -216,12 +230,12 @@ def test_leanblueprint_setup_missing_version_reports(tmp_path):
     managed.mkdir()
     args = types.SimpleNamespace(probe_lean_dir=bindir)
 
-    reason = ph.leanblueprint_setup(project, args, {"managed_bin": managed})
+    reason = ph.probe_lean_setup(project, args, {"managed_bin": managed})
     assert reason and "v4.99.0" in reason
     assert not (managed / "probe-lean").exists()
 
 
-def test_leanblueprint_setup_actionable_messages(tmp_path):
+def test_probe_lean_setup_actionable_messages(tmp_path):
     import types
 
     project = tmp_path / "proj"
@@ -229,16 +243,85 @@ def test_leanblueprint_setup_actionable_messages(tmp_path):
     managed = tmp_path / "managed"
     managed.mkdir()
     # No lean-toolchain file -> names the missing file, not "tc=None".
-    r1 = ph.leanblueprint_setup(
+    r1 = ph.probe_lean_setup(
         project, types.SimpleNamespace(probe_lean_dir=tmp_path), {"managed_bin": managed}
     )
     assert "lean-toolchain" in r1 and "None" not in r1
     # Toolchain present but no probe-lean dir -> points at --probe-lean-dir.
     (project / "lean-toolchain").write_text("leanprover/lean4:v4.30.0")
-    r2 = ph.leanblueprint_setup(
+    r2 = ph.probe_lean_setup(
         project, types.SimpleNamespace(probe_lean_dir=None), {"managed_bin": managed}
     )
     assert "--probe-lean-dir" in r2 and "None" not in r2
+
+
+def test_probe_lean_setup_auto_installs_missing_version(tmp_path):
+    import types
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "lean-toolchain").write_text("leanprover/lean4:v4.30.0")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    # Fake installer standing in for the curl|bash one-liner: just drops the
+    # versioned binary into --probe-lean-dir. `{version}` is substituted by setup.
+    args = types.SimpleNamespace(
+        probe_lean_dir=bindir,
+        install_probe_lean=True,
+        probe_lean_install_cmd=f"touch {bindir}/probe-lean-{{version}}",
+        setup_timeout=60,
+    )
+    state = {"managed_bin": managed}
+
+    assert ph.probe_lean_setup(project, args, state) is None
+    assert (bindir / "probe-lean-v4.30.0").is_file()
+    link = managed / "probe-lean"
+    assert link.resolve() == (bindir / "probe-lean-v4.30.0").resolve()
+    assert state["probe_lean_version"] == "v4.30.0"
+
+
+def test_probe_lean_setup_failed_install_not_retried(tmp_path):
+    import types
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "lean-toolchain").write_text("leanprover/lean4:v4.30.0")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    managed = tmp_path / "managed"
+    managed.mkdir()
+    args = types.SimpleNamespace(
+        probe_lean_dir=bindir,
+        install_probe_lean=True,
+        probe_lean_install_cmd="false {version}",  # valid template, install always fails
+        setup_timeout=60,
+    )
+    state = {"managed_bin": managed}
+    r1 = ph.probe_lean_setup(project, args, state)
+    assert r1 and "install failed" in r1
+    # Second sample, same version: install is not retried, but still reports missing.
+    args.probe_lean_install_cmd = "false {version}"
+    r2 = ph.probe_lean_setup(project, args, state)
+    assert r2 and "no probe-lean-v4.30.0" in r2
+    assert state["install_attempted"] == {"v4.30.0"}
+
+
+def test_probe_lean_setup_missing_hint_mentions_install_flag(tmp_path):
+    import types
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "lean-toolchain").write_text("leanprover/lean4:v4.99.0")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    r = ph.probe_lean_setup(
+        project,
+        types.SimpleNamespace(probe_lean_dir=bindir),
+        {"managed_bin": tmp_path / "m"},
+    )
+    assert "--install-probe-lean" in r  # actionable when the flag is off
 
 
 def test_dep_cache_key_depends_on_toolchain_and_manifest(tmp_path):

@@ -13,11 +13,29 @@ frontier gap (white + yellow + red) is left implicit — but ``--in-progress``
 adds the doc's ``in-progress`` atom status (``yellow``: an incomplete proof,
 sorry / assume) as its own curve, and ``--unspecified`` adds ``white`` (tracked
 but no spec written yet). These are two distinct states; the gap conflates them.
+``red`` (a failed verification) is drawn automatically whenever any sample has
+one — like ``translated``, it needs no flag, and stays off when nothing failed.
 
 For a **leanblueprint** history (``pipeline == leanblueprint``) it instead draws
 two stacked panels mirroring the published blueprint site — Definitions (total +
 formalized) and Theorems (total + formalized + proved), where "proved" is the
-probe-lean-confirmed count. The mode is auto-detected from the records.
+probe-lean-confirmed count.
+
+For a **lean** history (``pipeline == lean``, a Lean project with no blueprint)
+it draws two stacked panels — Definitions and Theorems — each with three nested
+frontiers: total, without-sorry (verified + transitively-verified + trusted), and
+the trust boundary (transitively-verified + trusted). There is no fixed ceiling;
+total is just the declaration count, which grows over time.
+
+``--combined`` overrides the leanblueprint or lean two-panel chart with a single
+FC-style panel that pools definitions and theorems (unit: blueprint node for
+leanblueprint, declaration for lean): nested ``ceiling ≥ verified+trusted ≥
+verified`` frontiers, plus in-progress / failed / unrealized / unspecified status
+curves drawn when present. The ceiling is labelled ``tracked`` for leanblueprint
+(the blueprint node set is a genuine tracked total) but ``total`` for plain Lean,
+which is probe-lean-sourced and has no tracked number — only the declaration count.
+
+The mode is auto-detected from the records.
 
 Only ``status == ok`` samples are plotted; gaps (verify_error, timeout, …) are
 skipped, matching how the frontier chart is defined.
@@ -47,6 +65,7 @@ COL = {
     "in_progress": "#E8833A",  # amber — in-progress (yellow: sorry / assume)
     "unspecified": "#B08D57",  # tan — tracked but no spec written yet (white)
     "failed": "#C0392B",  # red — elaboration error
+    "unrealized": "#C05A9E",  # magenta — formalized but no bound decl (over-claim)
     "formalized": "#2E79B5",  # blue — blueprint statement axis (Lean stated)
     "proved": "#1F8A65",  # green — blueprint proof axis (sorry-free, confirmed)
     "axis": "#999999",
@@ -63,18 +82,30 @@ INT_FIELDS = (
     "bp_nodes_total bp_nodes_bound bp_nodes_planned bp_nodes_decl_missing "
     "bp_def_total bp_def_formalized "
     "bp_thm_total bp_thm_formalized bp_thm_proved bp_thm_proved_confirmed "
-    # probe-lean proof-status partition over the formalized nodes (--atoms mode)
+    # probe-lean proof-status partition over the formalized nodes (--combined mode)
     "bp_def_verified bp_def_trusted bp_def_in_progress bp_def_failed bp_def_unrealized "
-    "bp_thm_verified bp_thm_trusted bp_thm_in_progress bp_thm_failed bp_thm_unrealized"
+    "bp_thm_verified bp_thm_trusted bp_thm_in_progress bp_thm_failed bp_thm_unrealized "
+    # probe-lean kind-split metrics (the `lean` pipeline; blank otherwise)
+    "lean_def_total lean_def_sorry lean_def_verified lean_def_trans_verified "
+    "lean_def_trusted lean_def_failed "
+    "lean_thm_total lean_thm_sorry lean_thm_verified lean_thm_trans_verified "
+    "lean_thm_trusted lean_thm_failed"
 ).split()
 
-# Fields the combined-atoms (--atoms) chart needs. If a plotted row lacks these
+# Fields the combined (--combined) chart needs. If a plotted row lacks these
 # (an old history predating the columns), we refuse rather than silently render
 # them as zero via the coercion in load_records.
-ATOMS_FIELDS = [
+COMBINED_FIELDS = [
     f"bp_{k}_{b}"
     for k in ("def", "thm")
     for b in ("total", "formalized", "verified", "trusted", "in_progress", "failed", "unrealized")
+]
+
+# The lean-pipeline analogue: the kind-split tallies the lean combined chart pools.
+LEAN_COMBINED_FIELDS = [
+    f"lean_{k}_{b}"
+    for k in ("def", "thm")
+    for b in ("total", "sorry", "verified", "trans_verified", "trusted", "failed")
 ]
 
 
@@ -310,6 +341,13 @@ def burnup_svg(ok, title, subtitle, show_in_progress=False, show_unspecified=Fal
         white = [r["white"] for r in ok]
         plot.line(white, COL["unspecified"])
         legend.append(("unspecified (no spec)", COL["unspecified"]))
+    # `red` (a failed verification) is auto-drawn when present, like `translated`:
+    # it is a rare but critical status that should never sit hidden in the gap, so
+    # it needs no opt-in flag, and stays absent (no clutter) when nothing failed.
+    red = [r["red"] for r in ok]
+    if any(red):
+        plot.line(red, COL["failed"])
+        legend.append(("failed", COL["failed"]))
     plot.legend(legend)
     return plot.svg()
 
@@ -356,45 +394,111 @@ def blueprint_svg(ok, base_title, subtitle) -> str:
     return _compose_panels([defs, thms])
 
 
-def combined_atoms_svg(ok, base_title, subtitle, show_unspecified=False):
-    """One panel putting definitions and theorems on a single FC-style chart,
-    counting every blueprint node as an atom.
+def _lean_panel(cats, m, prefix, title, subtitle, y_max):
+    """One kind panel (definitions or theorems) with three nested frontiers.
 
-    Frontiers (nested): ``tracked >= verified+trusted >= verified``. Status curves
-    (zero-based): ``in-progress`` (probe-lean ``unverified``: a sorry), ``failed``
-    (probe-lean elaboration error), and optionally ``unspecified`` (no Lean
-    statement). The completion frontier is the probe-lean status of each node's
-    bound atoms (``verified`` = green = verified + transitively-verified;
-    ``+trusted`` = axiom/external); the ceiling and the unspecified split come
-    from the blueprint statement axis. Returns ``(svg, warnings)``; warnings flag
-    any sample where the nesting is violated (rendered honestly, not clamped)."""
+    total >= without-sorry >= trust-boundary. The gap total - without-sorry is
+    ``sorry + failed`` (plus any unrecognised/absent status -- count_lean warns on
+    those), NOT the sorry count alone; without-sorry - trust-boundary is the
+    locally-clean-but-transitively-contaminated set. ``failed`` (an elaboration
+    error) is drawn as its own zero-based curve when present, so a failure is not
+    silently folded into that gap. Derived from the raw per-status counts so the
+    stored record stays faithful to probe-lean's own statuses."""
+    total = [r[f"{prefix}total"] for r in m]
+    no_sorry = [
+        r[f"{prefix}verified"] + r[f"{prefix}trans_verified"] + r[f"{prefix}trusted"] for r in m
+    ]
+    trust = [r[f"{prefix}trans_verified"] + r[f"{prefix}trusted"] for r in m]
+    failed = [r[f"{prefix}failed"] for r in m]
+
+    p = Plot(cats, y_max, title, subtitle, "declarations")
+    p.axes()
+    # Largest first so the nested bands read correctly.
+    p.area(total, COL["tracked"], 0.08)
+    p.area(no_sorry, COL["formalized"], 0.14)
+    p.area(trust, COL["proved"], 0.18)
+    p.line(total, COL["tracked"])
+    p.line(no_sorry, COL["formalized"])
+    p.line(trust, COL["proved"])
+    legend = [
+        ("total", COL["tracked"]),
+        ("without sorry", COL["formalized"]),
+        ("trust boundary", COL["proved"]),
+    ]
+    # Zero-based; drawn only when some sample failed (like the combined chart), so a
+    # clean history stays uncluttered and failures never masquerade as sorries.
+    if any(failed):
+        p.line(failed, COL["failed"])
+        legend.append(("failed", COL["failed"]))
+    p.legend(legend)
+    return p
+
+
+def lean_svg(ok, base_title, subtitle) -> str:
+    """Two stacked panels for a plain-Lean (no-blueprint) history: Definitions and
+    Theorems, each with total / without-sorry / trust-boundary. "Without sorry" =
+    verified + transitively-verified + trusted; "trust boundary" = transitively-
+    verified + trusted (sound modulo the axioms/external trust base). Unlike a
+    blueprint history there is no fixed ceiling -- total is the declaration count,
+    which grows over time. A shared y-ceiling keeps the two panels comparable."""
     cats = [r["sample_date"] for r in ok]
-    tracked = [r["bp_def_total"] + r["bp_thm_total"] for r in ok]
-    verified = [r["bp_def_verified"] + r["bp_thm_verified"] for r in ok]
-    verified_trusted = [
-        v + r["bp_def_trusted"] + r["bp_thm_trusted"] for v, r in zip(verified, ok, strict=True)
-    ]
-    in_progress = [r["bp_def_in_progress"] + r["bp_thm_in_progress"] for r in ok]
-    failed = [r["bp_def_failed"] + r["bp_thm_failed"] for r in ok]
-    unspecified = [
-        (r["bp_def_total"] - r["bp_def_formalized"]) + (r["bp_thm_total"] - r["bp_thm_formalized"])
-        for r in ok
-    ]
+    y_max = nice_ceiling(
+        max(
+            max((r["lean_def_total"] for r in ok), default=0),
+            max((r["lean_thm_total"] for r in ok), default=0),
+        )
+    )
+    # Subtitle only on the top panel, matching blueprint_svg.
+    defs = _lean_panel(cats, ok, "lean_def_", f"{base_title} — definitions", subtitle, y_max)
+    thms = _lean_panel(cats, ok, "lean_thm_", f"{base_title} — theorems", "", y_max)
+    return _compose_panels([defs, thms])
 
+
+def _combined_plot(
+    cats,
+    tracked,
+    verified,
+    verified_trusted,
+    in_progress,
+    failed,
+    unrealized,
+    unspecified,
+    base_title,
+    subtitle,
+    unit,
+    show_unspecified=False,
+    ceiling_label="tracked (ceiling)",
+    ceiling_word="tracked",
+):
+    """Shared renderer for the single-panel FC chart, over pre-pooled series.
+
+    Both the leanblueprint (``combined_svg``, unit = blueprint node) and the plain
+    Lean (``lean_combined_svg``, unit = declaration) combined charts feed the same
+    nested frontiers (ceiling ``>= verified+trusted >= verified``) plus the
+    zero-based ``in-progress`` / ``failed`` / ``unrealized`` / ``unspecified``
+    status curves through here, so the two read with one vocabulary and differ only
+    in the y-axis unit (stated in ``unit`` and the subtitle) and the ceiling's name.
+    The ceiling curve is labelled ``ceiling_label`` (``ceiling_word`` in prose
+    warnings): "tracked" for leanblueprint, where the blueprint node set is a
+    genuine tracked total, but "total" for plain Lean, where the ceiling is just the
+    probe-lean declaration count and there is no curated tracked set. Curves are
+    drawn only when present; ``unspecified`` is opt-in via ``show_unspecified``.
+    Returns ``(svg, warnings)``; warnings flag any sample where the nesting is
+    violated (rendered honestly, not clamped)."""
     warnings: list[str] = []
     for i, d in enumerate(cats):
         if not (verified[i] <= verified_trusted[i] <= tracked[i]):
             warnings.append(
                 f"{d}: frontier nesting violated "
                 f"(verified {verified[i]} <= verified+trusted {verified_trusted[i]} "
-                f"<= tracked {tracked[i]})"
+                f"<= {ceiling_word} {tracked[i]})"
             )
         for name, series in (("in-progress", in_progress), ("failed", failed)):
             if series[i] > tracked[i]:
-                warnings.append(f"{d}: {name} ({series[i]}) exceeds tracked ({tracked[i]})")
+                warnings.append(f"{d}: {name} ({series[i]}) exceeds {ceiling_word} ({tracked[i]})")
 
     y_max = nice_ceiling(max(tracked) if tracked else 0)
-    plot = Plot(cats, y_max, f"{base_title} — combined atoms", subtitle, "blueprint nodes")
+    plot = Plot(cats, y_max, f"{base_title} — combined", subtitle, unit)
     plot.axes()
     # Nested frontiers, largest area first.
     plot.area(tracked, COL["tracked"], 0.08)
@@ -403,19 +507,25 @@ def combined_atoms_svg(ok, base_title, subtitle, show_unspecified=False):
     plot.line(tracked, COL["tracked"])
     plot.line(verified_trusted, COL["verified_trusted"])
     plot.line(verified, COL["verified"])
-    # Zero-based status counts (distinct states, not a conflated gap).
-    plot.line(in_progress, COL["in_progress"])
-    plot.line(failed, COL["failed"])
     # Band names match the FC colour burn-up (burnup_svg) so the two charts read
     # with one vocabulary; the node-vs-atom unit and blueprint-vs-probe-lean
     # provenance live in the subtitle and the "How to read" docs.
     legend = [
-        ("tracked (ceiling)", COL["tracked"]),
+        (ceiling_label, COL["tracked"]),
         ("verified + trusted", COL["verified_trusted"]),
         ("verified", COL["verified"]),
-        ("in-progress (sorry/assume)", COL["in_progress"]),
-        ("failed", COL["failed"]),
     ]
+    # Zero-based status curves, drawn only when present (like `translated` /
+    # `failed` on the colour burn-up) so a clean history stays uncluttered.
+    if any(in_progress):
+        plot.line(in_progress, COL["in_progress"])
+        legend.append(("in-progress (sorry/assume)", COL["in_progress"]))
+    if any(failed):
+        plot.line(failed, COL["failed"])
+        legend.append(("failed", COL["failed"]))
+    if any(unrealized):
+        plot.line(unrealized, COL["unrealized"])
+        legend.append(("unrealized (no bound status)", COL["unrealized"]))
     if show_unspecified:
         plot.line(unspecified, COL["unspecified"])
         legend.append(("unspecified (no statement)", COL["unspecified"]))
@@ -427,6 +537,90 @@ def combined_atoms_svg(ok, base_title, subtitle, show_unspecified=False):
             f'<text x="{plot.ml}" y="{yy}" font-size="10" fill="{COL["failed"]}">⚠ {esc(w)}</text>'
         )
     return plot.svg(), warnings
+
+
+def combined_svg(ok, base_title, subtitle, show_unspecified=False):
+    """Leanblueprint combined chart: one panel pooling definitions and theorems,
+    counting every blueprint node (the y-axis unit).
+
+    The completion frontier is the probe-lean status of each node's bound atoms
+    (``verified`` = green = verified + transitively-verified; ``+trusted`` =
+    axiom/external); the ceiling and the ``unspecified`` split come from the
+    blueprint statement axis. Delegates the drawing to ``_combined_plot``."""
+    cats = [r["sample_date"] for r in ok]
+    tracked = [r["bp_def_total"] + r["bp_thm_total"] for r in ok]
+    verified = [r["bp_def_verified"] + r["bp_thm_verified"] for r in ok]
+    verified_trusted = [
+        v + r["bp_def_trusted"] + r["bp_thm_trusted"] for v, r in zip(verified, ok, strict=True)
+    ]
+    in_progress = [r["bp_def_in_progress"] + r["bp_thm_in_progress"] for r in ok]
+    failed = [r["bp_def_failed"] + r["bp_thm_failed"] for r in ok]
+    unrealized = [r["bp_def_unrealized"] + r["bp_thm_unrealized"] for r in ok]
+    unspecified = [
+        (r["bp_def_total"] - r["bp_def_formalized"]) + (r["bp_thm_total"] - r["bp_thm_formalized"])
+        for r in ok
+    ]
+    return _combined_plot(
+        cats,
+        tracked,
+        verified,
+        verified_trusted,
+        in_progress,
+        failed,
+        unrealized,
+        unspecified,
+        base_title,
+        subtitle,
+        "blueprint nodes",
+        show_unspecified=show_unspecified,
+    )
+
+
+def lean_combined_svg(ok, base_title, subtitle):
+    """Plain-Lean combined chart: one panel pooling definitions and theorems,
+    counting every Lean declaration (the y-axis unit).
+
+    Maps the kind-split probe-lean tallies onto the same FC frontiers as
+    ``combined_svg``, matching ``colors.py``: ``verified`` (green) = probe-lean
+    ``verified`` + ``transitively-verified``; ``verified + trusted`` adds ``trusted``
+    (axiom/external) and equals the lean two-panel "without sorry" frontier;
+    ``in-progress`` = ``sorry`` (``unverified``); ``failed`` = elaboration error.
+    Lean has no blueprint statement axis, so ``unrealized`` and ``unspecified`` are
+    not applicable (always zero, never drawn). Like the lean two-panel there is no
+    fixed ceiling and no curated tracked set -- the ceiling is just the probe-lean
+    declaration count (labelled "total", matching the two-panel), which grows over
+    time; probe-lean gives us no "tracked" number to draw."""
+    cats = [r["sample_date"] for r in ok]
+    tracked = [r["lean_def_total"] + r["lean_thm_total"] for r in ok]
+    verified = [
+        r["lean_def_verified"]
+        + r["lean_def_trans_verified"]
+        + r["lean_thm_verified"]
+        + r["lean_thm_trans_verified"]
+        for r in ok
+    ]
+    verified_trusted = [
+        v + r["lean_def_trusted"] + r["lean_thm_trusted"] for v, r in zip(verified, ok, strict=True)
+    ]
+    in_progress = [r["lean_def_sorry"] + r["lean_thm_sorry"] for r in ok]
+    failed = [r["lean_def_failed"] + r["lean_thm_failed"] for r in ok]
+    zeros = [0] * len(cats)  # no blueprint axis: unrealized / unspecified N/A for lean
+    return _combined_plot(
+        cats,
+        tracked,
+        verified,
+        verified_trusted,
+        in_progress,
+        failed,
+        zeros,
+        zeros,
+        base_title,
+        subtitle,
+        "declarations",
+        show_unspecified=False,
+        ceiling_label="total",
+        ceiling_word="total",
+    )
 
 
 # SVG->PNG converters tried in order (first on PATH wins). The SVG is always the
@@ -502,17 +696,19 @@ def parse_args(argv):
         "(tracked but no spec written yet). Distinct from --in-progress.",
     )
     p.add_argument(
-        "--atoms",
+        "--combined",
         action="store_true",
-        help="leanblueprint only: render the combined single-panel chart "
-        "(definitions + theorems as one atom pool, FC-aligned: tracked / "
-        "verified+trusted / verified, plus in-progress and failed). Writes "
-        "burnup-atoms.svg; --unspecified adds the no-statement curve.",
+        help="leanblueprint / lean: render a single-panel chart pooling definitions "
+        "and theorems (unit: blueprint node for leanblueprint, declaration for lean), "
+        "FC-aligned: ceiling / verified+trusted / verified, plus in-progress / failed "
+        "/ unrealized. The ceiling is 'tracked' for leanblueprint but 'total' for lean "
+        "(probe-lean-sourced, no tracked number). Writes burnup-combined.svg; "
+        "--unspecified adds the no-statement curve (leanblueprint only).",
     )
     p.add_argument(
         "--strict",
         action="store_true",
-        help="With --atoms, exit non-zero if any sample violates the frontier "
+        help="With --combined, exit non-zero if any sample violates the frontier "
         "nesting (the warning is stamped into the SVG either way).",
     )
     p.add_argument(
@@ -547,26 +743,26 @@ def main(argv=None) -> int:
     )
 
     pipeline = ok[0].get("pipeline")
-    if args.atoms and pipeline != "leanblueprint":
+    if args.combined and pipeline not in ("leanblueprint", "lean"):
         print(
-            f"[error] --atoms is a leanblueprint-only chart; pipeline is {pipeline!r}.",
+            f"[error] --combined needs a leanblueprint or lean history; pipeline is {pipeline!r}.",
             file=sys.stderr,
         )
         return 2
 
-    atoms_warnings: list[str] = []
-    if pipeline == "leanblueprint" and args.atoms:
+    combined_warnings: list[str] = []
+    if pipeline == "leanblueprint" and args.combined:
         # Refuse to plot silent-zero curves on a history predating the columns:
         # check the raw rows (pre-coercion), so absent != 0.
         raw_ok = [r for r in _read_rows(args.input) if r.get("status") == "ok"]
         missing = sorted(
             r.get("sample_date", "?")
             for r in raw_ok
-            if not all(_present(r, f) for f in ATOMS_FIELDS)
+            if not all(_present(r, f) for f in COMBINED_FIELDS)
         )
         if missing:
             print(
-                "[error] --atoms needs the per-node proof-status columns "
+                "[error] --combined needs the per-node proof-status columns "
                 f"(bp_def_verified, bp_thm_verified, ...), absent for samples: "
                 f"{', '.join(missing)}. Re-extract this history to populate them.",
                 file=sys.stderr,
@@ -574,23 +770,57 @@ def main(argv=None) -> int:
             return 2
         if args.in_progress:
             print(
-                "[note] in-progress is always drawn in --atoms; --in-progress ignored.",
+                "[note] in-progress is drawn when present in --combined; --in-progress ignored.",
                 file=sys.stderr,
             )
         # Names match the FC chart; the differing unit/provenance goes here so it
         # is always on the chart (see "How to read the charts" in the README).
-        atoms_subtitle = subtitle + " · unit: blueprint node · proof status: probe-lean"
-        svg, atoms_warnings = combined_atoms_svg(
-            ok, args.title or repo, atoms_subtitle, show_unspecified=args.unspecified
+        combined_subtitle = subtitle + " · unit: blueprint node · proof status: probe-lean"
+        svg, combined_warnings = combined_svg(
+            ok, args.title or repo, combined_subtitle, show_unspecified=args.unspecified
         )
+    elif pipeline == "lean" and args.combined:
+        raw_ok = [r for r in _read_rows(args.input) if r.get("status") == "ok"]
+        missing = sorted(
+            r.get("sample_date", "?")
+            for r in raw_ok
+            if not all(_present(r, f) for f in LEAN_COMBINED_FIELDS)
+        )
+        if missing:
+            print(
+                "[error] --combined needs the kind-split status columns "
+                f"(lean_def_total, lean_thm_sorry, ...), absent for samples: "
+                f"{', '.join(missing)}. Re-extract this history to populate them.",
+                file=sys.stderr,
+            )
+            return 2
+        if args.in_progress:
+            print(
+                "[note] in-progress is drawn when present in --combined; --in-progress ignored.",
+                file=sys.stderr,
+            )
+        if args.unspecified:
+            print(
+                "[note] lean has no unspecified (no-statement) state; --unspecified ignored.",
+                file=sys.stderr,
+            )
+        combined_subtitle = subtitle + " · unit: declaration · proof status: probe-lean"
+        svg, combined_warnings = lean_combined_svg(ok, args.title or repo, combined_subtitle)
     elif pipeline == "leanblueprint":
         if args.in_progress or args.unspecified:
             print(
                 "[note] --in-progress/--unspecified are colour-pipeline options; "
-                "ignored for leanblueprint (use --atoms for the combined chart).",
+                "ignored for leanblueprint (use --combined for the combined chart).",
                 file=sys.stderr,
             )
         svg = blueprint_svg(ok, args.title or repo, subtitle)
+    elif pipeline == "lean":
+        if args.in_progress or args.unspecified:
+            print(
+                "[note] --in-progress/--unspecified are colour-pipeline options; ignored for lean.",
+                file=sys.stderr,
+            )
+        svg = lean_svg(ok, args.title or repo, subtitle)
     else:
         title = args.title or f"{repo} — verification burn-up"
         svg = burnup_svg(
@@ -601,17 +831,17 @@ def main(argv=None) -> int:
             show_unspecified=args.unspecified,
         )
     # Default alongside the input: data/<name>/progress.jsonl -> .../burnup.svg.
-    # --atoms writes a distinct stem so it never overwrites the two-panel chart.
-    kind = "burnup-atoms" if args.atoms else "burnup"
+    # --combined writes a distinct stem so it never overwrites the two-panel chart.
+    kind = "burnup-combined" if args.combined else "burnup"
     default_stem = kind if args.input.stem == "progress" else f"{args.input.stem}-{kind}"
     out = args.output or args.input.with_name(f"{default_stem}.svg")
     out.write_text(svg)
     print(f"wrote {out}")
     if args.png:
         svg_to_png(out, out.with_suffix(".png"), args.png_scale)
-    for w in atoms_warnings:
+    for w in combined_warnings:
         print(f"[warn] {w}", file=sys.stderr)
-    if atoms_warnings and args.strict:
+    if combined_warnings and args.strict:
         return 3
     return 0
 
