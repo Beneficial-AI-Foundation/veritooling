@@ -168,7 +168,7 @@ def to_dot(graph: bp_graph.Graph, title: str | None = None) -> str:
         if e.src not in ids or e.dst not in ids:
             continue
         style = "dashed" if e.kind == "proof" else "solid"
-        lines.append(f'  {ids[e.src]} -> {ids[e.dst]} [style={style}];')
+        lines.append(f"  {ids[e.src]} -> {ids[e.dst]} [style={style}];")
 
     lines.extend(_legend(present))
     lines.append("}")

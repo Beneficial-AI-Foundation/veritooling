@@ -39,9 +39,7 @@ def _graph(items):
 def test_report_has_closure_ready_and_ranking():
     g = _graph(
         {
-            "probe:A": _bound(
-                "A", proof="fully-proved", status="verified", proof_uses=["probe:B"]
-            ),
+            "probe:A": _bound("A", proof="fully-proved", status="verified", proof_uses=["probe:B"]),
             "probe:B": _bound("B", proof="fully-proved", status="verified"),
         }
     )
@@ -75,12 +73,8 @@ def test_table_format_runs_without_manifest():
 def test_table_format_shows_cycle_warning():
     g = _graph(
         {
-            "probe:A": _bound(
-                "A", proof="fully-proved", status="verified", proof_uses=["probe:B"]
-            ),
-            "probe:B": _bound(
-                "B", proof="fully-proved", status="verified", proof_uses=["probe:A"]
-            ),
+            "probe:A": _bound("A", proof="fully-proved", status="verified", proof_uses=["probe:B"]),
+            "probe:B": _bound("B", proof="fully-proved", status="verified", proof_uses=["probe:A"]),
         }
     )
     report = blueprint_insights.build_report(g)
@@ -112,12 +106,8 @@ def test_html_report_is_well_formed_and_shows_key_sections():
 
     g = _graph(
         {
-            "probe:A": _bound(
-                "A", proof="fully-proved", status="verified", proof_uses=["probe:B"]
-            ),
-            "probe:B": _bound(
-                "B", proof="fully-proved", status="verified", proof_uses=["probe:A"]
-            ),
+            "probe:A": _bound("A", proof="fully-proved", status="verified", proof_uses=["probe:B"]),
+            "probe:B": _bound("B", proof="fully-proved", status="verified", proof_uses=["probe:A"]),
         }
     )
     report = blueprint_insights.build_report(g, top_n=5)

@@ -102,8 +102,7 @@ def test_grouping_by_label_matches_oracle():
     assert set(g.nodes) == {"A", "B"}
     # Node count agrees with the tested counter (the oracle).
     assert (
-        bp_graph.summary(g)["nodes_total"]
-        == blueprint_progress.count_blueprint(env)["nodes_total"]
+        bp_graph.summary(g)["nodes_total"] == blueprint_progress.count_blueprint(env)["nodes_total"]
     )
 
 
@@ -138,8 +137,14 @@ def test_rollup_excludes_hidden_ignored_stub():
 
 
 def _state(**kw):
-    env = _env({"probe:blueprint:N": _atom("N", **{k: v for k, v in kw.items() if k in
-               ("statement", "proof")}), "probe:N": _bound("N", **kw)})
+    env = _env(
+        {
+            "probe:blueprint:N": _atom(
+                "N", **{k: v for k, v in kw.items() if k in ("statement", "proof")}
+            ),
+            "probe:N": _bound("N", **kw),
+        }
+    )
     return bp_graph.node_state(bp_graph.build_graph(env).nodes["N"])
 
 
@@ -289,9 +294,7 @@ def test_machine_closure_catches_axiom_reliance_blueprint_bookkeeping_misses():
     # gap found on carleson (154 claimed-closed vs 140 machine-closed).
     env = _env(
         {
-            "probe:T": _bound(
-                "T", proof="fully-proved", status="verified", proof_uses=["probe:U"]
-            ),
+            "probe:T": _bound("T", proof="fully-proved", status="verified", proof_uses=["probe:U"]),
             "probe:U": _bound("U", proof="fully-proved", status="trusted"),
         }
     )

@@ -39,8 +39,14 @@ def _dot(items, **kw):
 def test_dot_has_nodes_edges_and_styles():
     dot = _dot(
         {
-            "probe:A": _bound("A", statement="formalized", proof="fully-proved", status="verified",
-                              stmt_uses=["probe:B"], proof_uses=["probe:B"]),
+            "probe:A": _bound(
+                "A",
+                statement="formalized",
+                proof="fully-proved",
+                status="verified",
+                stmt_uses=["probe:B"],
+                proof_uses=["probe:B"],
+            ),
             "probe:B": _bound("B", statement="ready"),
         }
     )

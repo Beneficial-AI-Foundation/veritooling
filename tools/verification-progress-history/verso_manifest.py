@@ -65,9 +65,7 @@ def load_manifest_warnings(paths: list[Path]) -> dict[str, dict[str, bool]]:
 
 def missing_informal_coverage(warnings_by_label: dict[str, dict[str, bool]]) -> list[str]:
     """Labels flagged ``leanOnlyNoStatement``: bound to Lean, no informal writeup."""
-    return sorted(
-        label for label, w in warnings_by_label.items() if w.get("leanOnlyNoStatement")
-    )
+    return sorted(label for label, w in warnings_by_label.items() if w.get("leanOnlyNoStatement"))
 
 
 def main(argv: list[str] | None = None) -> int:
