@@ -1,4 +1,4 @@
-Source: /home/lacra/git_repos/baif/secure-messaging @ 08176cf8
+Source: secure-messaging @ 08176cf8
 
 Theorem entries: 56
   claimed (blueprint's own bookkeeping):

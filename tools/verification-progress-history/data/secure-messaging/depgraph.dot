@@ -1,7 +1,7 @@
 digraph blueprint {
   graph [rankdir=TB, labelloc="t", fontname="Helvetica", fontsize=11, splines=true];
   node [shape=box, fontname="Helvetica", fontsize=10];
-  label="/home/lacra/git_repos/baif/secure-messaging @ 08176cf8\lschema probe-leanblueprint/extract v2.0\l114 nodes (58 def, 56 thm)  215 edges\ltheorems: claimed proved 9/56 (16%)   machine-verified 9/56 (16%)\lstates: machine-verified=35  proved-claimed=2  ready=11  not-ready=66\lcaveat: trust detection is node-local (cross-node axiom reliance not caught)\l";
+  label="secure-messaging @ 08176cf8\lschema probe-leanblueprint/extract v2.0\l114 nodes (58 def, 56 thm)  215 edges\ltheorems: claimed proved 9/56 (16%)   machine-verified 9/56 (16%)\lstates: machine-verified=35  proved-claimed=2  ready=11  not-ready=66\lcaveat: trust detection is node-local (cross-node axiom reliance not caught)\l";
   n0 [fillcolor="#1F8A65", color="#1F8A65", style="filled", fontcolor="#FFFFFF", label="aead"];
   n1 [fillcolor="#FFFFFF", color="#888899", style="filled,dashed", fontcolor="#333333", label="aead_aes_gcm_correctness"];
   n2 [fillcolor="#FFFFFF", color="#888899", style="filled,dashed", fontcolor="#333333", label="aead_aes_gcm_security"];

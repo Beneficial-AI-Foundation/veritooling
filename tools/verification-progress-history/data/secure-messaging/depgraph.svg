@@ -9,7 +9,7 @@
 <g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 588)">
 <title>blueprint</title>
 <polygon fill="white" stroke="transparent" points="-4,4 -4,-588 9523.76,-588 9523.76,4 -4,4"/>
-<text text-anchor="start" x="4549.38" y="-571.2" font-family="Helvetica,sans-Serif" font-size="11.00">/home/lacra/git_repos/baif/secure&#45;messaging @ 08176cf8</text>
+<text text-anchor="start" x="4549.38" y="-571.2" font-family="Helvetica,sans-Serif" font-size="11.00">secure&#45;messaging @ 08176cf8</text>
 <text text-anchor="start" x="4549.38" y="-559.2" font-family="Helvetica,sans-Serif" font-size="11.00">schema probe&#45;leanblueprint/extract v2.0</text>
 <text text-anchor="start" x="4549.38" y="-547.2" font-family="Helvetica,sans-Serif" font-size="11.00">114 nodes (58 def, 56 thm) &#160;215 edges</text>
 <text text-anchor="start" x="4549.38" y="-535.2" font-family="Helvetica,sans-Serif" font-size="11.00">theorems: claimed proved 9/56 (16%) &#160;&#160;machine&#45;verified 9/56 (16%)</text>
