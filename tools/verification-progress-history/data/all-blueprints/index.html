@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang=en><head><meta charset=utf-8>
+<title>All blueprint dependency graphs &amp; progress (probe-leanblueprint)</title><style>
+body {
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  margin: 2rem; color: #0b0b0b; background: #f9f9f7;
+}
+h1 { font-size: 1.4rem; }
+h2 { font-size: 1.05rem; margin-top: 2rem; }
+caption { text-align: left; font-weight: 600; margin-bottom: .4rem; }
+table { border-collapse: collapse; margin: 1rem 0; background: #fcfcfb; }
+th, td { border: 1px solid #e1e0d9; padding: .35rem .7rem; text-align: right; }
+th:first-child, td:first-child { text-align: left; }
+th { background: #f4f4f6; color: #52514e; font-weight: 600; }
+td.mv { font-weight: 600; color: #0ca30c; }
+td.warn { font-weight: 600; color: #d03b3b; }
+td.commit { font-family: ui-monospace, monospace; color: #898781; }
+.note { color: #52514e; font-size: .9rem; max-width: 46rem; }
+</style></head>
+<body>
+<h1>All blueprint dependency graphs &amp; progress (probe-leanblueprint)</h1>
+<table>
+<caption>Blueprint formalization progress (1 projects)</caption>
+<thead><tr>
+<th>project</th><th>commit</th><th>nodes</th><th>def</th><th>thm</th>
+<th>claimed</th><th>machine-verified</th><th>mismatch</th><th>graph</th><th>insights</th>
+</tr></thead>
+<tbody>
+<tr><td>KeyedVerificationAnonymousCredential-model</td><td class=commit>ab91ef60</td><td>43</td><td>26</td><td>17</td><td>6%</td><td class=mv>6%</td><td>0</td><td><a href="KeyedVerificationAnonymousCredential-model.svg">graph</a></td><td><a href="KeyedVerificationAnonymousCredential-model.insights.html">insights</a></td></tr>
+</tbody></table>
+<p class=note><b>claimed</b> = the blueprint's own <code>fully-proved</code> claim over
+theorems. <b>machine-verified</b> = probe-lean's <code>verification-status</code> rollup
+landing on <code>verified</code> (no sorry / axiom / failure in the node's bindings) &mdash;
+a stricter, machine-checked bar, and the graphs' solid green. <b>mismatch</b> counts nodes
+claimed proved but refuted by the machine. Trust detection is node-local (cross-node axiom
+reliance is not caught).</p>
+</body></html>
