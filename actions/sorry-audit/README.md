@@ -3,15 +3,15 @@
 One-step sorry-audit pipeline for the build job. Restores the base branch's
 manifest, generates the head manifest with your chosen backend, caches it on the
 default branch, optionally runs the specs delta, and uploads the artifacts the
-verification-comment workflow reads — all in a single step you can drop into a
-job that also does other things (e.g. a doc-site build).
+verification-comment workflow reads, all in a single step you can drop into a job
+that also does other things (e.g. a doc-site build).
 
 This is the orchestration layer; the actual sorry detection is delegated to
 [`sorry-audit-collectaxioms`](../sorry-audit-collectaxioms/) or
 [`sorry-audit-probe`](../sorry-audit-probe/), and spec-change detection to
 [`specs-delta`](../specs-delta/). The reusable
-[`lean-build-audit.yml`](../../.github/workflows) workflow is just `checkout` +
-`lake build` + this action.
+[`lean-build-audit.yml`](../../.github/workflows) workflow is just `checkout` plus
+`lake build` plus this action.
 
 ## Usage
 
@@ -27,7 +27,7 @@ This is the orchestration layer; the actual sorry detection is delegated to
 ```
 
 Use it directly (rather than the reusable workflow) when the audit shares a job
-with other steps — for example building docs from the same `lake build`.
+with other steps, for example building docs from the same `lake build`.
 
 ## Inputs
 

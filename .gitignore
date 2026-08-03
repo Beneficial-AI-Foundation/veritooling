@@ -3,3 +3,6 @@ __pycache__/
 
 # Security report kept locally, not published
 docs/SECURITY.md
+
+# Design/implementation plans stay local, not committed
+*-plan.md
