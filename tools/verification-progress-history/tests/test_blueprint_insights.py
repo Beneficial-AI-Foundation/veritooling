@@ -54,6 +54,22 @@ def test_report_has_closure_ready_and_ranking():
     assert "missing_informal_coverage" not in report  # no warnings_by_label given
 
 
+def test_most_used_ranking_has_deterministic_tie_break():
+    # Z and A are both used once by X, tying exactly on (uses, downstream).
+    # Z is inserted before A, so a naive stable sort would list Z first;
+    # the ranking must break the tie alphabetically instead.
+    g = _graph(
+        {
+            "probe:X": _bound("X", proof_uses=["probe:Z", "probe:A"]),
+            "probe:Z": _bound("Z"),
+            "probe:A": _bound("A"),
+        }
+    )
+    report = blueprint_insights.build_report(g, top_n=5)
+    labels = [m["label"] for m in report["most_used_proofs"]]
+    assert labels[:2] == ["A", "Z"]
+
+
 def test_report_includes_missing_informal_coverage_when_given():
     g = _graph({"probe:A": _bound("A")})
     report = blueprint_insights.build_report(

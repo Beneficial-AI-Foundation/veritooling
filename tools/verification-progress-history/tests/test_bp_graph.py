@@ -424,3 +424,15 @@ def test_actionable_ignores_proof_only_dependencies():
     )
     g = bp_graph.build_graph(env)
     assert "X" in bp_graph.actionable(g)
+
+
+def test_display_repo_keeps_urls_and_basenames_local_paths():
+    assert bp_graph.display_repo("https://github.com/x/y.git") == "https://github.com/x/y.git"
+    assert bp_graph.display_repo("git@github.com:x/y.git") == "git@github.com:x/y.git"
+    # No configured remote: probe-lean/probe-leanblueprint fall back to the
+    # local checkout path -- cut down to a basename so it's never rendered
+    # verbatim and leak the machine's username/directory layout.
+    assert (
+        bp_graph.display_repo("/home/someone/git_repos/baif/secure-messaging") == "secure-messaging"
+    )
+    assert bp_graph.display_repo("") == ""

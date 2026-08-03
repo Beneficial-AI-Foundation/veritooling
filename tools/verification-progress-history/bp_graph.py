@@ -234,6 +234,17 @@ def build_graph_file(path: Path) -> Graph:
         return build_graph(json.load(f))
 
 
+def display_repo(repo: str) -> str:
+    """A real git remote URL is shown as-is; anything else (an extract taken
+    from a work-clone with no configured remote falls back to the local
+    checkout path) is cut down to its basename before it's ever rendered, so
+    a report/graph never leaks the machine's username or directory layout.
+    """
+    if not repo or "://" in repo or repo.startswith("git@"):
+        return repo
+    return repo.rstrip("/").removesuffix(".git").split("/")[-1] or repo
+
+
 def summary(graph: Graph) -> dict:
     """Per-state and per-kind counts + fractions, recomputed from the graph.
 
@@ -499,6 +510,7 @@ __all__ = [
     "node_state",
     "build_graph",
     "build_graph_file",
+    "display_repo",
     "summary",
     "claimed_ok",
     "machine_ok",

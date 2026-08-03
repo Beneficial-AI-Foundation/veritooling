@@ -96,7 +96,7 @@ def _attrs(d: dict) -> str:
 
 def _header(graph: bp_graph.Graph, s: dict) -> str:
     src = graph.source
-    repo = src.get("repo", "?")
+    repo = bp_graph.display_repo(src.get("repo", "?"))
     commit = (src.get("commit", "") or "")[:8]
     st = s["by_state"]
     dropped = ", ".join(f"{r}={c}" for r, c in s["dropped"].items() if c)

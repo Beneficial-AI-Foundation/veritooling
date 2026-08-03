@@ -50,18 +50,23 @@ def _most_used_by(
     graph: bp_graph.Graph, downstream, indeg, use_kind: str, top_n: int
 ) -> list[dict]:
     """Top labels ranked by direct ``use_kind`` ("statement" or "proof") uses,
-    ties broken by downstream unlocks -- mirrors the live Blueprint-Summary
-    page's separate "most used in statements" / "most used in proofs" lists,
-    each sorted by that column's own direct-use count, not by downstream
-    impact. Confirmed at matching commits (KVAC, noperthedron): per-node
-    counts agree exactly with the live page; only the combined single-list
-    ranking this used to produce (sorted by downstream unlocks) picked a
-    different top-N and order."""
+    ties broken by downstream unlocks and then by label -- mirrors the live
+    Blueprint-Summary page's separate "most used in statements" / "most used
+    in proofs" lists, each sorted by that column's own direct-use count, not
+    by downstream impact. Confirmed at matching commits (KVAC, noperthedron):
+    per-node counts agree exactly with the live page; only the combined
+    single-list ranking this used to produce (sorted by downstream unlocks)
+    picked a different top-N and order.
+
+    The label tie-break makes the ranking deterministic: without it, two
+    labels tied on both counts would order however they happened to appear
+    in ``graph.nodes`` (extract JSON key order), which isn't meaningful and
+    isn't guaranteed stable across regenerations of the same extract.
+    """
     labels = [label for label in graph.nodes if indeg[label][use_kind] > 0]
     ranked = sorted(
         labels,
-        key=lambda label: (indeg[label][use_kind], downstream[label]),
-        reverse=True,
+        key=lambda label: (-indeg[label][use_kind], -downstream[label], label),
     )[:top_n]
     return [
         {
@@ -110,7 +115,7 @@ def build_report(graph: bp_graph.Graph, top_n: int = 10, warnings_by_label=None)
 def _format_table(report: dict) -> str:
     c = report["closure"]
     lines = [
-        f"Source: {report['source'].get('repo', '?')} @ "
+        f"Source: {bp_graph.display_repo(report['source'].get('repo', '?'))} @ "
         f"{(report['source'].get('commit', '') or '')[:8]}",
         "",
         f"Theorem entries: {c['thm_total']}",
@@ -245,7 +250,7 @@ def _format_html(report: dict, top_n: int) -> str:
 
     sections = [
         f"<h1>{html.escape(title)} &mdash; Blueprint insights</h1>",
-        f'<p class="note">Source: {html.escape(src.get("repo", "?"))} '
+        f'<p class="note">Source: {html.escape(bp_graph.display_repo(src.get("repo", "?")))} '
         f'<span class="muted">@ {html.escape(commit)}</span> &middot; '
         f"{c['thm_total']} theorem-kind entries</p>",
     ]
