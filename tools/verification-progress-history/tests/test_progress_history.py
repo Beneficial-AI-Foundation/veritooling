@@ -4,6 +4,8 @@ Deterministic units only; the probe binaries are left to the run guide. One test
 drives a throwaway git repo (skipped when git is absent).
 """
 
+import gzip
+import json
 import os
 import shutil
 import subprocess
@@ -11,6 +13,28 @@ from datetime import datetime, timezone
 
 import progress_history as ph
 import pytest
+
+
+def test_archive_extract_gzips_by_commit(tmp_path):
+    src = tmp_path / "leanblueprint_x.json"
+    payload = {"schema": "probe-leanblueprint/extract", "data": {"probe:A": {}}}
+    src.write_text(json.dumps(payload), encoding="utf-8")
+
+    out = ph.archive_extract(src, tmp_path / "data", "abc123")
+    assert out == tmp_path / "data" / "extracts" / "abc123.json.gz"
+    with gzip.open(out, "rt", encoding="utf-8") as f:
+        assert json.load(f) == payload
+
+
+def test_check_archive_extracts_pipeline_rejects_non_leanblueprint():
+    for pipeline in ("verus", "aeneas", "lean"):
+        err = ph.check_archive_extracts_pipeline(True, pipeline)
+        assert err is not None
+        assert pipeline in err
+
+    assert ph.check_archive_extracts_pipeline(True, "leanblueprint") is None
+    # Off entirely: no complaint regardless of pipeline.
+    assert ph.check_archive_extracts_pipeline(False, "verus") is None
 
 
 def test_last_line():
