@@ -101,3 +101,7 @@ across projects) showing **claimed** beside the stricter **machine-verified**.
 Full definitions and caveats (node grouping, node-local trust detection, what the
 model cannot show) are in the
 [tool README](../README.md#dependency-graph--cross-project-dashboard).
+
+For how these outputs measure up against verso-blueprint's own published graph
+and Blueprint Summary pages (same commit, four reference blueprints), see
+[verso-blueprint-comparison.md](verso-blueprint-comparison.md).

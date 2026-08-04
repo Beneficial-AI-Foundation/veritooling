@@ -36,6 +36,7 @@ history walk (see the run command in the [tool README](../README.md#run)). The
 | `kvac-model-blueprint-projected/` | leanblueprint (projected) | A one-off blueprint projection (`tool: projection`), not the sampler; see [`../leanblueprint-metrics.md`](../leanblueprint-metrics.md) | Chart: yes, from its `progress.jsonl`. |
 | `kvac-model/` | leanblueprint | `plot_depgraph.py` / `blueprint_insights.py` on KVAC's extract at commit `ab91ef60` | Graph/insights only. Need the extract (not committed) to regenerate. |
 | `all-blueprints/` | leanblueprint | `blueprint_dashboard.py` over several extracts | Need the extracts (not committed) to regenerate. |
+| `verso-comparison/` | leanblueprint | our graph/insights vs verso-blueprint's published pages, four reference blueprints at their pinned commits; see [`../guides/verso-blueprint-comparison.md`](../guides/verso-blueprint-comparison.md) | Our side: need the extracts. verso side: screenshots of the live pages. |
 
 `kvac-model/` and `all-blueprints/` are dependency-graph snapshots, no history
 yet. `all-blueprints/index.html` currently covers only KVAC, the sole project

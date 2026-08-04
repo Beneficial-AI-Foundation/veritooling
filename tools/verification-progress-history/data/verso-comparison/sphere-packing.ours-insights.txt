@@ -1,0 +1,51 @@
+Source: https://github.com/ejgallego/verso-sphere-packing.git @ 4cbb43d6
+
+Theorem entries: 106
+  claimed (blueprint's own bookkeeping):
+    closed:            24
+    incomplete-deps:   29
+    sorry:             9
+    no-proof:          44
+  machine (probe-lean cross-check):
+    closed:            0
+    incomplete-deps:   0
+    sorry:             0
+    no-proof:          106
+
+Actionable (statement ready, deps formalized): 19
+  SpherePacking
+  «def:Gamma-1-Action»
+  «def:h»
+  «def:level-N-princ-cong-subgp»
+  «def:phi4-phi2-phi0»
+  «lem:bound-I1-I3-I5»
+  «lem:bound-I2-I4-I6»
+  «lem:integral-bound»
+  «lemma:Gaussian-Fourier»
+  «lemma:Schwartz-summable»
+
+Most used in statements (top entries by statement uses):
+  «def:E2»                                 stmt-uses=8    proof-uses=1    downstream=48
+  «SpherePacking.density»                  stmt-uses=7    proof-uses=0    downstream=11
+  «def:disc-definition»                    stmt-uses=6    proof-uses=2    downstream=51
+  «def:Mk»                                 stmt-uses=6    proof-uses=0    downstream=48
+  «def:H2-H3-H4»                           stmt-uses=6    proof-uses=0    downstream=38
+  «def:serre-der»                          stmt-uses=6    proof-uses=0    downstream=36
+  «thm:ramanujan-formula»                  stmt-uses=5    proof-uses=3    downstream=31
+  «lemma:theta-transform-S-T»              stmt-uses=5    proof-uses=3    downstream=28
+  «def:phi4-phi2-phi0»                     stmt-uses=5    proof-uses=0    downstream=19
+  «def:psiI-psiT-psiS»                     stmt-uses=5    proof-uses=1    downstream=14
+
+Most used in proofs (top entries by proof uses):
+  «thm:ramanujan-formula»                  proof-uses=3    stmt-uses=5    downstream=31
+  «lemma:theta-transform-S-T»              proof-uses=3    stmt-uses=5    downstream=28
+  «cor:phi0-bound»                         proof-uses=3    stmt-uses=2    downstream=20
+  «def:disc-definition»                    proof-uses=2    stmt-uses=6    downstream=51
+  «lemma:Gamma-2-generators»               proof-uses=2    stmt-uses=1    downstream=27
+  «lemma:jacobi-identity»                  proof-uses=2    stmt-uses=2    downstream=23
+  «lemma:mod-div-disc-bound»               proof-uses=2    stmt-uses=3    downstream=23
+  «lemma:lv1-lv2-identities»               proof-uses=2    stmt-uses=1    downstream=18
+  «cor:theta-pos»                          proof-uses=2    stmt-uses=2    downstream=12
+  «cor:disc-pos»                           proof-uses=2    stmt-uses=2    downstream=11
+
+Missing informal coverage: 0 entries

@@ -23,6 +23,7 @@ runnable walkthrough against the committed `data/`.
 |------------|----------------|-------|
 | Progress **over git history** as a burn-up time series | `progress_history.py` then `plot_progress.py` | [guides/history-burnup.md](guides/history-burnup.md) |
 | **One snapshot's** blueprint dependency graph, closure/insights, or a cross-project comparison | `bp_graph.py` then `plot_depgraph.py` / `blueprint_insights.py` / `blueprint_dashboard.py` | [guides/graph-and-dashboard.md](guides/graph-and-dashboard.md) |
+| **How accurate** our reproduction is against verso-blueprint's own pages | (the same chain, compared to verso's four reference blueprints) | [guides/verso-blueprint-comparison.md](guides/verso-blueprint-comparison.md) |
 
 `data/README.md` maps every committed `data/<project>/` back to the exact
 command that produced it. `leanblueprint-metrics.md` explains how the

@@ -1,0 +1,31 @@
+Source: https://github.com/ejgallego/verso-carleson.git @ 5b34f5d4
+
+Theorem entries: 161
+  claimed (blueprint's own bookkeeping):
+    closed:            154
+    incomplete-deps:   6
+    sorry:             0
+    no-proof:          1
+  machine (probe-lean cross-check):
+    closed:            0
+    incomplete-deps:   0
+    sorry:             0
+    no-proof:          161
+
+Actionable (statement ready, deps formalized): 0
+
+Most used in statements (top entries by statement uses):
+  «monotone-cube-metrics»                  stmt-uses=7    proof-uses=0    downstream=40
+  «Hardy-Littlewood»                       stmt-uses=6    proof-uses=0    downstream=31
+  «overlap-implies-distance»               stmt-uses=4    proof-uses=0    downstream=27
+  «lower-secant-bound»                     stmt-uses=4    proof-uses=0    downstream=12
+  «dyadic-partitions»                      stmt-uses=3    proof-uses=0    downstream=28
+  «adjoint-tile-support»                   stmt-uses=3    proof-uses=0    downstream=25
+  «relation-geometry»                      stmt-uses=3    proof-uses=0    downstream=18
+  «Dirichlet-kernel»                       stmt-uses=3    proof-uses=0    downstream=9
+  «kernel-summand»                         stmt-uses=2    proof-uses=0    downstream=32
+  «Holder-van-der-Corput»                  stmt-uses=2    proof-uses=0    downstream=22
+
+Most used in proofs (top entries by proof uses):
+
+Missing informal coverage: 0 entries

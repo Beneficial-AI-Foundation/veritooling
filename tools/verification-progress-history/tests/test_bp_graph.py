@@ -23,6 +23,7 @@ def _atom(
     decl_missing=False,
     missing_decls=False,
     mismatch=False,
+    source_proof=None,
     stmt_uses=None,
     proof_uses=None,
     title=None,
@@ -54,6 +55,8 @@ def _atom(
         a["blueprint-missing-decls"] = ["Foo.bar"]
     if mismatch:
         a["blueprint-status-mismatch"] = "claims-proved-but-unverified"
+    if source_proof is not None:
+        a["blueprint-source-proof-status"] = source_proof
     if stmt_uses:
         a["blueprint-statement-uses"] = stmt_uses
     if proof_uses:
@@ -283,6 +286,23 @@ def test_claimed_bucket_reads_proof_status_directly():
     cs = bp_graph.closure_summary(g)
     assert cs["thm_total"] == 4
     assert cs["claimed"] == {"closed": 1, "incomplete-deps": 1, "sorry": 1, "no-proof": 1}
+
+
+def test_claimed_bucket_counts_demoted_sorry_from_source_status():
+    # probe-leanblueprint demotes a code-derived sorry proof to proof_status
+    # "none" but keeps blueprint-source-proof-status "incomplete". It must still
+    # count as sorry (what verso reports), not no-proof. S is the demoted sorry;
+    # N is a genuine no-proof (no source override).
+    env = _env(
+        {
+            "probe:S": _atom("S", proof="none", source_proof="incomplete"),
+            "probe:N": _atom("N", proof="none"),
+        }
+    )
+    g = bp_graph.build_graph(env)
+    assert g.nodes["S"].source_proof_status == "incomplete"
+    cs = bp_graph.closure_summary(g)
+    assert cs["claimed"] == {"closed": 0, "incomplete-deps": 0, "sorry": 1, "no-proof": 1}
 
 
 def test_machine_closure_catches_axiom_reliance_blueprint_bookkeeping_misses():

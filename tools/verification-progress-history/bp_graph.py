@@ -68,6 +68,7 @@ class Node:
     group: str | None = None
     stmt_status: str = "none"
     proof_status: str = "none"
+    source_proof_status: str | None = None  # raw manifest status before demotion
     bound: bool = False
     decl_missing: bool = False
     missing_decls: bool = False
@@ -170,6 +171,11 @@ def build_graph(envelope: dict) -> Graph:
         n.group = n.group or atom.get("blueprint-group")
         n.stmt_status = atom.get("blueprint-statement-status", n.stmt_status)
         n.proof_status = atom.get("blueprint-proof-status", n.proof_status)
+        # probe-leanblueprint demotes a code-derived sorry proof (manifest
+        # ``incomplete``) to ``none`` in blueprint-proof-status, but preserves the
+        # original in blueprint-source-proof-status. Keep it so _claimed_bucket can
+        # still tell a sorried proof apart from a genuinely absent one.
+        n.source_proof_status = n.source_proof_status or atom.get("blueprint-source-proof-status")
         if atom.get("language") != "blueprint" or atom.get("blueprint-shadow"):
             n.bound = True
         if atom.get("language") != "blueprint" and _atom_included(atom):
@@ -445,12 +451,16 @@ def _claimed_bucket(n: Node) -> str:
     Validated against carleson's own published Blueprint-Summary page: reading
     proof_status this way reproduces its 154 closed / 6 incomplete-deps exactly
     (mod one node of expected commit drift between snapshots).
+
+    A code-derived sorry proof is demoted to ``proof_status == "none"`` but keeps
+    ``source_proof_status == "incomplete"``; count it as ``sorry`` (matching what
+    verso's Blueprint-Summary reports) rather than lumping it into ``no-proof``.
     """
     if n.proof_status == "fully-proved":
         return "closed"
     if n.proof_status == "proved":
         return "incomplete-deps"
-    if n.proof_bucket in ("in_progress", "failed"):
+    if n.proof_bucket in ("in_progress", "failed") or n.source_proof_status == "incomplete":
         return "sorry"
     return "no-proof"
 
