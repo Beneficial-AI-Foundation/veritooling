@@ -10,12 +10,6 @@ Data lives in `data/secure-messaging/`. Last recorded sample: **2026-07-22**
 (`progress.jsonl`, 5 rows). Sampling re-runs the real verifier per commit, so it
 is slow (~10–13 min/commit here); plotting is free.
 
-The local checkout is `/home/lacra/git_repos/baif/secure-messaging` (used as the
-`repo` argument below). It is intentionally **not** recorded in the committed
-`data/README.md`: commit `4afe26e` scrubbed the absolute local path out of the
-snapshot because it leaked a home directory, so the committed reproducibility
-steps carry only the flags.
-
 The committed series is **weekly** (Wednesday-anchored: 2026-06-24 … 2026-07-22),
 so extend it with `--cadence weekly`.
 
@@ -65,13 +59,6 @@ python3 plot_progress.py data/secure-messaging/progress.jsonl --combined --png
 
 Writes `burnup.svg`/`.png` and `burnup-combined.svg`/`.png` alongside the JSONL.
 Add `--in-progress` (yellow) and `--unspecified` (white) to draw those frontiers.
-
-## 3. Commit
-
-```bash
-git add data/secure-messaging/
-git commit -m "data(secure-messaging): progress sample $(date -u +%F)"
-```
 
 Only `ok` samples are plotted; other statuses show as captioned gaps. See
 [`../../guides/history-burnup.md`](../../guides/history-burnup.md) and
