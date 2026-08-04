@@ -92,6 +92,17 @@ Graph — ours (Graphviz) then verso (d3):
 ![ours](../data/verso-comparison/carleson.ours-depgraph.png)
 ![verso](../data/verso-comparison/carleson.verso-depgraph.png)
 
+**The 161-vs-160 difference is one node, and it is the single red node in verso's
+graph.** verso's own manifest has 161 nodes, the same as ours; verso excludes one
+from its "Total entries: 160". That node is `«nontangential-from-simple»`
+(`kind: None`, `statementStatus: blocked`, `proofStatus: none`,
+`warnings.unknownRef: true`) — a label other entries reach via `\uses` but that
+was never given its own statement or proof. verso paints it red ("Blocked", its
+legend's danger state) and drops it from the entry total; we keep it as a node and
+bucket it `no-proof`. So `161 vs 160` and `no-proof 1 vs 0` are the same fact, not
+two. In our graph it is the dashed white "not ready to formalize" box near
+`Dirichlet-approximation`.
+
 ### Sphere-Packing
 
 <img src="../data/verso-comparison/sphere-packing.verso-summary-overview.png" width="520">
@@ -136,20 +147,9 @@ since verso has no machine column.
 
 ## Reproduce
 
-The extracts are not committed (they need a built Lean project). With a clone of
-each `ejgallego/verso-<proj>` wrapper built at the pinned SHA (submodule
-checked out, `lake exe cache get`, docs rendered so the
-`blueprint-manifest.json` exists):
-
-```bash
-probe-leanblueprint extract <wrapper-clone> --no-render \
-  --verso-manifest <wrapper-clone>/_out/site/html-multi/-verso-data/blueprint-manifest.json \
-  -o /tmp/<proj>.extract.json
-
-python3 plot_depgraph.py      /tmp/<proj>.extract.json -o <proj>.ours-depgraph.svg
-python3 blueprint_insights.py /tmp/<proj>.extract.json --manifest <manifest> --table
-```
-
-verso's overview screenshots were captured from the live pages linked above; the
-counts are in the server-rendered HTML (no client-side JS needed to read them).
-The dependency-graph images are its d3 rendering.
+The pinned wrapper/submodule SHAs per project, and the exact command behind every
+committed artifact (extract, `plot_depgraph.py`, `blueprint_insights.py`, and the
+`capture_verso_screenshots.py` verso shots), are in
+[`../data/verso-comparison/README.md`](../data/verso-comparison/README.md). The
+extract envelopes are not committed (they need a built Lean project); everything
+else there is a seconds-long re-render from an extract.
