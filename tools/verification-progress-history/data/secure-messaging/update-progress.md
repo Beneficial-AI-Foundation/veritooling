@@ -17,8 +17,7 @@ snapshot because it leaked a home directory, so the committed reproducibility
 steps carry only the flags.
 
 The committed series is **weekly** (Wednesday-anchored: 2026-06-24 … 2026-07-22),
-so extend it with `--cadence weekly`. (Note: `data/README.md` says `--cadence
-monthly`; that is a stale doc — the actual data is weekly.)
+so extend it with `--cadence weekly`.
 
 ## Prerequisites (on PATH, pinned for the whole run)
 
