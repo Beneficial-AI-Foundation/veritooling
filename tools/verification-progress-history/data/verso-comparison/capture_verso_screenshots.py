@@ -41,9 +41,7 @@ OUT = Path(__file__).parent
 def main() -> None:
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        ctx = browser.new_context(
-            viewport={"width": 1500, "height": 1000}, device_scale_factor=2
-        )
+        ctx = browser.new_context(viewport={"width": 1500, "height": 1000}, device_scale_factor=2)
         page = ctx.new_page()
         for name, slug in PROJECTS.items():
             # Summary: open only the Overview card, element-screenshot it.
@@ -71,9 +69,7 @@ def main() -> None:
             )
             page.wait_for_selector("svg", timeout=30000)
             time.sleep(4)
-            page.screenshot(
-                path=str(OUT / f"{name}.verso-depgraph.png"), full_page=True
-            )
+            page.screenshot(path=str(OUT / f"{name}.verso-depgraph.png"), full_page=True)
             print(f"captured {name}")
         browser.close()
 

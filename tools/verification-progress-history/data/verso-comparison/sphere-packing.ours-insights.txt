@@ -4,8 +4,8 @@ Theorem entries: 106
   claimed (blueprint's own bookkeeping):
     closed:            24
     incomplete-deps:   29
-    sorry:             0
-    no-proof:          53
+    sorry:             9
+    no-proof:          44
   machine (probe-lean cross-check):
     closed:            0
     incomplete-deps:   0

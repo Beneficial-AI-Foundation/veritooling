@@ -24,25 +24,31 @@ real methodology differences, not commit drift.
 
 **Match, to the unit.** Whenever an entry is present on both sides, our
 `claimed` closure buckets and our downstream-unlock counts equal verso's. On
-Carleson, Sphere-Packing, and FLT the shared-entry `closed` and `deps
-incomplete` counts agree exactly (154/154, 24/24, 105/105 closed). Every
-`downstream` figure in "most used" matches verso's. Our `Actionable` list
-equals verso's `Actionable priorities` exactly on Carleson (0) and Noperthedron
-(9).
+Carleson, Sphere-Packing, and FLT the shared-entry `closed`, `deps incomplete`,
+and `sorry` counts agree exactly (closed 154/24/105, sorry 0/9/10) — Sphere-Packing
+matches on all four buckets (24 / 29 / 9 / 44). Every `downstream` figure in
+"most used" matches verso's. Our `Actionable` list equals verso's `Actionable
+priorities` exactly on Carleson (0) and Noperthedron (9).
 
-**Differ, and why.** Three differences, all upstream of the graph model (they
-come from how `probe-leanblueprint` extracts the node set and statuses, not from
-`bp_graph`'s computation):
+**Differ, and why.** Three differences. Entry-set membership and the type
+taxonomy are upstream of the graph model (from how `probe-leanblueprint` extracts
+the node set); the sorry gap is now mostly closed in `bp_graph` itself:
 
 1. **Entry-set membership.** `probe-leanblueprint` keeps a slightly different
    node set than verso renders: FLT +8, Carleson +1, Sphere-Packing ±0,
    Noperthedron −11 entries. On FLT/Carleson the extra nodes are all `no-proof`;
    on Noperthedron we are missing 11 non-definition entries verso shows.
-2. **Sorry detection.** Our `probe-lean` pass reports 0 sorries on all four (the
-   built projects compile clean), so entries verso marks `sorry` land in our
-   `no-proof` bucket instead. This exactly accounts for the `no-proof` gap on
-   Sphere-Packing (44 verso + 9 sorry = 53 ours) and FLT (47 + 10 + 8 extra =
-   65 ours).
+2. **Sorry detection.** verso marks an entry `sorry` when its proof exists but
+   contains a `sorry`. `probe-leanblueprint` demotes that (a `code-derived`
+   claim the machine can't confirm) to `blueprint-proof-status: none`, but keeps
+   the original in `blueprint-source-proof-status: incomplete`. `bp_graph` reads
+   that source field, so our `sorry` bucket now matches verso exactly on
+   Sphere-Packing (9) and FLT (10). Noperthedron's single sorry is the exception:
+   its entry is labelled `fully-proved` with a missing decl, so it lands in
+   `closed`, not `sorry` — that one needs an extract bound to the upstream
+   library to catch (see "Graph coloring"). Independent machine re-detection of
+   sorries is also inert on these wrapper-only extracts, for the same
+   decl-binding reason.
 3. **Type taxonomy.** verso splits Definition / Lemma / Theorem / Corollary; we
    only carry `definition` vs `theorem`, and our headline counts "theorem
    entries" (non-definitions) while verso's total includes definitions. This is
@@ -62,17 +68,21 @@ overview line; the non-definition split is its per-type rollup.
 
 | Project | verso total | our nodes (def/thm) | Δ | closed (verso non-def / ours) | sorries (verso / ours) | actionable (verso AP / ours) |
 |---------|------------:|--------------------:|--:|------------------------------:|-----------------------:|-----------------------------:|
-| Carleson | 160 | 161 (0/161) | +1 | 154 / **154** | 0 / 0 | 0 / **0** |
-| Sphere-Packing | 140 | 140 (34/106) | 0 | 24 / **24** | 9 / 0 | 26 / 19 |
-| FLT | 237 | 245 (51/194) | +8 | 105 / **105** | 10 / 0 | 32 / 25 |
+| Carleson | 160 | 161 (0/161) | +1 | 154 / **154** | 0 / **0** | 0 / **0** |
+| Sphere-Packing | 140 | 140 (34/106) | 0 | 24 / **24** | 9 / **9** | 26 / 19 |
+| FLT | 237 | 245 (51/194) | +8 | 105 / **105** | 10 / **10** | 32 / 25 |
 | Noperthedron | 79 | 68 (9/59) | −11 | 46 / 37 | 1 / 0 | 9 / **9** |
 
-`Actionable` diverges on Sphere-Packing (19 vs 26) and FLT (25 vs 32); the gap
-tracks the sorry count on each, consistent with a sorried entry being
-`actionable` on verso but re-bucketed here once its sorry is not detected. Our
-`Missing informal coverage` reports 0 on all four where verso finds 1 / 2 / 2 /
-10; our `--manifest` cross-check is looking at fields the current wrapper
-manifests do not populate. Both are noted, not asserted as verso being wrong.
+`Actionable` diverges on Sphere-Packing (19 vs 26) and FLT (25 vs 32) by
+definition, not by error: ours counts entries whose next step is writing the
+*statement* (statement ready, deps formalized), whereas verso's "Actionable
+priorities" counts any next formalization step — statement *or* proof — that also
+unlocks downstream. Verso's set is the broader one, so ours is a subset
+(`19 ≤ 26`, `25 ≤ 32`); it coincides where the proof-next set is empty (Carleson
+0, Noperthedron 9). Our `Missing informal coverage` reports 0 on all four where
+verso finds 1 / 2 / 2 / 10; our `--manifest` cross-check is looking at fields the
+current wrapper manifests do not populate. Both are noted, not asserted as verso
+being wrong.
 
 ## Per-project side by side
 
