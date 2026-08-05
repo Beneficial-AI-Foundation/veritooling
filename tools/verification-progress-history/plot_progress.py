@@ -251,6 +251,15 @@ class Plot:
     def legend(self, entries):
         lx = self.ml + self.plot_w + 16
         ly = self.mt + 4
+        # Grow the canvas rightward if the widest label would overflow, so long
+        # frontier names (e.g. "verified + transitively-verified + trusted") are
+        # not clipped. The plot area is already drawn against the original width,
+        # so this only extends the right margin; charts with short legends keep
+        # the default width and their SVGs are unchanged.
+        widest = max((len(label) for label, _ in entries), default=0)
+        needed = lx + 18 + int(widest * 6.3) + 12
+        if needed > self.W:
+            self.W = needed
         for i, (label, color) in enumerate(entries):
             yy = ly + i * 20
             self.parts.append(
@@ -321,8 +330,8 @@ def burnup_svg(ok, title, subtitle, show_in_progress=False, show_unspecified=Fal
     plot.line(verified, COL["verified"])
     legend = [
         ("tracked (ceiling)", COL["tracked"]),
-        ("verified + trusted", COL["verified_trusted"]),
-        ("verified", COL["verified"]),
+        ("verified + transitively-verified + trusted", COL["verified_trusted"]),
+        ("verified + transitively-verified", COL["verified"]),
     ]
     if has_translated:
         plot.line(translated, COL["translated"])
@@ -512,8 +521,8 @@ def _combined_plot(
     # provenance live in the subtitle and the "How to read" docs.
     legend = [
         (ceiling_label, COL["tracked"]),
-        ("verified + trusted", COL["verified_trusted"]),
-        ("verified", COL["verified"]),
+        ("verified + transitively-verified + trusted", COL["verified_trusted"]),
+        ("verified + transitively-verified", COL["verified"]),
     ]
     # Zero-based status curves, drawn only when present (like `translated` /
     # `failed` on the colour burn-up) so a clean history stays uncluttered.
