@@ -75,6 +75,7 @@ def test_record_to_row_maps_meaning_based_fields():
     assert "not_started" not in row
     assert "spec_only" not in row
 
+
 def test_record_to_row_skips_non_ok():
     bad = {**OK_RECORD, "status": "verify_error"}
     assert record_to_row(bad, 1) is None
