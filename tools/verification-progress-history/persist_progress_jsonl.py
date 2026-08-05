@@ -135,13 +135,10 @@ def validate_plot_categories(record: dict, cats: dict[str, int]) -> list[str]:
         )
     if cats["tracked"] != tracked_from_bars:
         errors.append(
-            f"tracked ({cats['tracked']}) != white+red+yellow+verified+purple "
-            f"({tracked_from_bars})"
+            f"tracked ({cats['tracked']}) != white+red+yellow+verified+purple ({tracked_from_bars})"
         )
     if cats["tracked"] != tracked_from_exec:
-        errors.append(
-            f"tracked ({cats['tracked']}) != exec_total-grey ({tracked_from_exec})"
-        )
+        errors.append(f"tracked ({cats['tracked']}) != exec_total-grey ({tracked_from_exec})")
     if cats["unspecified"] != white:
         errors.append(f"unspecified ({cats['unspecified']}) != white ({white})")
     if cats["in_progress"] != yellow:
@@ -286,9 +283,7 @@ def connect_mysql(args: argparse.Namespace):
     try:
         import pymysql
     except ImportError as e:
-        raise SystemExit(
-            "PyMySQL is required: pip install PyMySQL\n" + str(e)
-        ) from e
+        raise SystemExit("PyMySQL is required: pip install PyMySQL\n" + str(e)) from e
 
     return pymysql.connect(
         host=args.db_host,
@@ -346,9 +341,7 @@ def persist_rows(
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description="Persist progress JSONL into VeriLib repostats."
-    )
+    p = argparse.ArgumentParser(description="Persist progress JSONL into VeriLib repostats.")
     p.add_argument("--jsonl", type=Path, required=True, help="Path to progress.jsonl")
     p.add_argument(
         "--project",
@@ -405,9 +398,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        rows, skipped = load_ok_rows(
-            args.jsonl, repo_id, strict=not args.no_strict
-        )
+        rows, skipped = load_ok_rows(args.jsonl, repo_id, strict=not args.no_strict)
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
@@ -425,9 +416,7 @@ def main(argv: list[str] | None = None) -> int:
         if replace:
             conn = connect_mysql(args)
             try:
-                deleted, inserted = persist_rows(
-                    conn, repo_id, rows, replace=True, dry_run=True
-                )
+                deleted, inserted = persist_rows(conn, repo_id, rows, replace=True, dry_run=True)
             finally:
                 conn.close()
             print(f"[dry-run] would delete {deleted} existing row(s), insert {inserted}")
@@ -441,9 +430,7 @@ def main(argv: list[str] | None = None) -> int:
 
     conn = connect_mysql(args)
     try:
-        deleted, inserted = persist_rows(
-            conn, repo_id, rows, replace=replace, dry_run=False
-        )
+        deleted, inserted = persist_rows(conn, repo_id, rows, replace=replace, dry_run=False)
     except Exception:
         conn.rollback()
         raise
