@@ -10,7 +10,7 @@ Colour pipelines (verus/aeneas) map the burn-up series to meaning-based columns
     failed      <- red
 
 A leanblueprint history has no colour fields; it is folded into those same
-columns using the combined-atoms mapping (``plot_progress.combined_atoms_svg``),
+columns using the combined mapping (``plot_progress.combined_svg``),
 with ``translated`` always 0. Either way the untouched source record is stored
 in ``raw_record`` so the derived columns stay reversible.
 
@@ -30,7 +30,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from plot_progress import ATOMS_FIELDS, _coerce_ints, _present, _read_rows
+from plot_progress import COMBINED_FIELDS, _coerce_ints, _present, _read_rows
 
 PLOT_FIELDS = (
     "tracked",
@@ -61,7 +61,7 @@ def plot_categories_from_record(record: dict) -> dict[str, int]:
 
 
 def atoms_categories_from_record(record: dict) -> dict[str, int]:
-    """Counts matching ``plot_progress.combined_atoms_svg`` for one sample.
+    """Counts matching ``plot_progress.combined_svg`` for one sample.
 
     Every blueprint node is one atom; definitions and theorems are pooled.
     """
@@ -87,7 +87,7 @@ def validate_atoms_categories(raw: dict, cats: dict[str, int]) -> list[str]:
     Absent bp_* columns coerce to 0, so require them rather than persisting an
     empty series for a history that predates them.
     """
-    missing = [f for f in ATOMS_FIELDS if not _present(raw, f)]
+    missing = [f for f in COMBINED_FIELDS if not _present(raw, f)]
     if missing:
         return [
             "missing per-node proof-status columns "

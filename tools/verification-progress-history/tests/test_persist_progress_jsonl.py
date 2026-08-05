@@ -162,7 +162,7 @@ LEANBLUEPRINT_RECORD = {
 
 
 def test_atoms_categories_match_combined_atoms_chart():
-    """Values match the final sample of data/secure-messaging/burnup-atoms.svg."""
+    """Values match the final sample of data/secure-messaging/burnup-combined.svg."""
     cats = atoms_categories_from_record(LEANBLUEPRINT_RECORD)
     assert cats == {
         "tracked": 114,

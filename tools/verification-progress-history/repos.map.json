@@ -27,12 +27,21 @@
     }
   },
   "dalek-verus": {
-    "signal_shot_key": null,
+    "signal_shot_key": "dalek-verus",
     "repo_url": "https://github.com/Beneficial-AI-Foundation/dalek-verus",
     "repo_ids": {
       "dev": 5594,
       "staging": 3171,
       "prod": 5132
+    }
+  },
+  "kvac-model": {
+    "signal_shot_key":"kvac-model",
+    "repo_url": "https://github.com/Beneficial-AI-Foundation/KeyedVerificationAnonymousCredential-model",
+    "repo_ids": {
+      "dev": 5751,
+      "staging": 3220,
+      "prod": 5236
     }
   }
 }
