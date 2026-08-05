@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from persist_progress_jsonl import (
     atoms_categories_from_record,
     load_ok_rows,
