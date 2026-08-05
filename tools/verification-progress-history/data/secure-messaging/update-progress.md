@@ -26,7 +26,7 @@ sample records `setup_failed`; add `--install-probe-lean` to auto-fetch it.
 week with no new commit adds nothing:
 
 ```bash
-python3 progress_history.py /home/lacra/git_repos/baif/secure-messaging \
+python3 progress_history.py <repo> \
   --pipeline leanblueprint --cadence weekly \
   --verso-render-cmd scripts/render-docs-site.sh \
   --since 2026-07-22 --resume \

@@ -225,7 +225,7 @@ def test_combined_single_panel_and_fc_aligned_legend():
     assert "— combined" in svg
     # Band names match the FC colour burn-up vocabulary.
     assert "tracked (ceiling)" in svg
-    assert "verified + trusted" in svg
+    assert "verified + transitively-verified + trusted" in svg
     assert "in-progress (sorry/assume)" in svg  # present -> drawn
     assert "unrealized (no bound status)" in svg  # _bpa has bp_def_unrealized=1
     assert "unspecified (no statement)" in svg
@@ -307,7 +307,7 @@ def test_lean_combined_single_panel_and_fc_aligned_legend():
     # declaration count -- labelled "total", never "tracked" (no tracked number).
     assert "tracked" not in svg
     assert ">total</text>" in svg
-    assert "verified + trusted" in svg
+    assert "verified + transitively-verified + trusted" in svg
     assert "without sorry" not in svg and "trust boundary" not in svg
     assert "in-progress (sorry/assume)" in svg  # 5 sorries -> curve drawn
     # Unit is a declaration, and there is no blueprint statement axis.
