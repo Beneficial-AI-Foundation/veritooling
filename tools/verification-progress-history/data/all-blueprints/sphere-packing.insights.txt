@@ -1,0 +1,39 @@
+Source: https://github.com/thefundamentaltheor3m/Sphere-Packing-Lean.git @ 1828993f
+
+Theorem entries: 106
+  claimed (blueprint's own bookkeeping):
+    closed:            24
+    incomplete-deps:   29
+    sorry:             9
+    no-proof:          44
+  machine (probe-lean cross-check):
+    closed:            21
+    incomplete-deps:   26
+    sorry:             9
+    no-proof:          50
+
+Ready now (statement ready, deps formalized): 18
+  SpherePacking
+  «def:Gamma-1-Action»
+  «def:h»
+  «def:level-N-princ-cong-subgp»
+  «def:phi4-phi2-phi0»
+  «lem:integral-bound»
+  «lemma:Gaussian-Fourier»
+  «lemma:Schwartz-summable»
+  «lemma:bound-J1-J3-J5»
+  «lemma:bound-J2-J4-J6»
+
+Most used (top entries by downstream unlocks):
+  «def:level-N-princ-cong-subgp»           downstream=56   stmt-uses=2 proof-uses=0
+  «def:dedekind_eta»                       downstream=53   stmt-uses=2 proof-uses=0
+  «def:disc-definition»                    downstream=51   stmt-uses=6 proof-uses=2
+  «def:congruence-subgroup»                downstream=49   stmt-uses=1 proof-uses=0
+  «def:E2»                                 downstream=48   stmt-uses=8 proof-uses=1
+  «def:Mk»                                 downstream=48   stmt-uses=6 proof-uses=0
+  «lemma:disc-E4E6»                        downstream=43   stmt-uses=1 proof-uses=0
+  «thm:nonpos_wt»                          downstream=43   stmt-uses=0 proof-uses=1
+  «thm:lvl1_dims»                          downstream=42   stmt-uses=2 proof-uses=0
+  «cor:dim-mf»                             downstream=40   stmt-uses=2 proof-uses=1
+
+Missing informal coverage: not checked (no --manifest given)

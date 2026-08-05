@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import hashlib
 import io
 import json
@@ -936,6 +937,36 @@ def append_record(jsonl: Path, csv_path: Path, record: dict):
     regenerate_csv(jsonl, csv_path)
 
 
+def archive_extract(extract_path: Path, data_dir: Path, sha: str) -> Path:
+    """Gzip-copy one sample's extract to ``<data_dir>/extracts/<commit>.json.gz``.
+
+    The scalar history keeps only counts, so the per-node graph (nodes, edges,
+    per-node status) cannot be reconstructed for a past commit without this.
+    Keyed by full commit sha; a re-run overwrites the same sample idempotently.
+    """
+    out_dir = data_dir / "extracts"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / f"{sha}.json.gz"
+    with open(extract_path, "rb") as src, gzip.open(out, "wb") as dst:
+        shutil.copyfileobj(src, dst)
+    return out
+
+
+def check_archive_extracts_pipeline(archive_extracts: bool, pipeline: str) -> str | None:
+    """``--archive-extracts`` only ever archives inside the ``leanblueprint``
+    branch of ``main`` (the dependency-graph tools only consume its extract
+    shape); for any other pipeline it would otherwise silently do nothing.
+    Returns an error message, or ``None`` if the combination is fine.
+    """
+    if archive_extracts and pipeline != "leanblueprint":
+        return (
+            "--archive-extracts only applies to --pipeline leanblueprint "
+            "(the dependency-graph tools only consume its extract shape); "
+            f"pipeline is {pipeline!r}."
+        )
+    return None
+
+
 def regenerate_csv(jsonl: Path, csv_path: Path):
     rows = _read_jsonl(jsonl)
     rows.sort(key=lambda r: (r.get("commit_date") or "", r.get("sample_date") or ""))
@@ -1054,6 +1085,14 @@ def parse_args(argv):
         "recompiling. Trades disk for time; safe to delete anytime.",
     )
     p.add_argument(
+        "--archive-extracts",
+        action="store_true",
+        help="Archive each ok sample's raw extract envelope to "
+        "<data>/extracts/<commit>.json.gz (gzipped). Enables the per-node "
+        "dependency-graph / temporal views (plot_depgraph.py) that the scalar "
+        "history can't reconstruct. Off by default; existing runs unaffected.",
+    )
+    p.add_argument(
         "--verso-render-cmd",
         help="Override the Verso render command probe-leanblueprint runs "
         "(via sh -c in the blueprint root), e.g. scripts/render-docs-site.sh.",
@@ -1115,6 +1154,10 @@ def main(argv=None):
         pipeline = detect_pipeline(project_dir)
     if pipeline not in ("verus", "aeneas", "lean", "leanblueprint"):
         print(f"[error] --pipeline {pipeline} is not supported.", file=sys.stderr)
+        return 2
+    archive_extracts_error = check_archive_extracts_pipeline(args.archive_extracts, pipeline)
+    if archive_extracts_error:
+        print(f"[error] {archive_extracts_error}", file=sys.stderr)
         return 2
     print(f"[pipeline] {pipeline}  project={project_dir}")
     if pipeline == "aeneas" and args.skip_verify:
@@ -1319,6 +1362,8 @@ def main(argv=None):
                 record["reason"] = "; ".join(notes)
                 if code not in (0, None):
                     record["reason"] = (record["reason"] + f"; extract exit={code}").strip("; ")
+                if args.archive_extracts:
+                    archive_extract(path, jsonl.parent, sha)
                 processed += 1
             else:
                 record["status"] = "verify_error"

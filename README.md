@@ -2,7 +2,7 @@
 
 Reusable CI toolkit for Lean 4 verification projects. Track `sorry`-tainted
 declarations, detect specification changes, and surface verification deltas as
-PR comments — without copying scripts into every repo.
+PR comments, without copying scripts into every repo.
 
 ## Workflows
 

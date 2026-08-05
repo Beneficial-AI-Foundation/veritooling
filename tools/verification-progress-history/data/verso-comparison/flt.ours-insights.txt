@@ -1,0 +1,51 @@
+Source: https://github.com/ejgallego/verso-flt.git @ 1695b7cb
+
+Theorem entries: 194
+  claimed (blueprint's own bookkeeping):
+    closed:            105
+    incomplete-deps:   24
+    sorry:             10
+    no-proof:          55
+  machine (probe-lean cross-check):
+    closed:            0
+    incomplete-deps:   0
+    sorry:             0
+    no-proof:          194
+
+Actionable (statement ready, deps formalized): 25
+  Frey_curve_hardly_ramified
+  Shimura_varieties
+  compatible_family
+  connected_reductive_group
+  fixed_of_fixed1
+  fixed_of_fixed1_aux1
+  fixed_of_fixed1_aux2
+  fixed_of_fixed2
+  instLieAlgebraAction
+  local_galois_coh_dim_two
+
+Most used in statements (top entries by statement uses):
+  «ZHat.commRing»                          stmt-uses=11   proof-uses=0    downstream=15
+  QHat                                     stmt-uses=8    proof-uses=0    downstream=9
+  «Hurwitz.norm»                           stmt-uses=8    proof-uses=1    downstream=9
+  «MeasureTheory.addEquivAddHaarChar»      stmt-uses=6    proof-uses=1    downstream=32
+  «NumberField.AdeleRing.DivisionAlgebra.Aux.X» stmt-uses=5    proof-uses=0    downstream=14
+  hardly_ramified                          stmt-uses=5    proof-uses=0    downstream=10
+  «MeasureTheory.ringHaarChar»             stmt-uses=4    proof-uses=0    downstream=20
+  «IsDedekindDomain.HeightOneSpectrum.adicCompletionComapSemialgHom» stmt-uses=4    proof-uses=0    downstream=16
+  Hurwitz                                  stmt-uses=4    proof-uses=0    downstream=15
+  «TotallyDefiniteQuaternionAlgebra.WeightTwoAutomorphicForm» stmt-uses=4    proof-uses=0    downstream=5
+
+Most used in proofs (top entries by proof uses):
+  «MeasureTheory.addEquivAddHaarChar_restrictedProductCongrRight» proof-uses=4    stmt-uses=0    downstream=13
+  «MeasureTheory.addEquivAddHaarChar_eq_ringHaarChar_det» proof-uses=3    stmt-uses=0    downstream=12
+  «Submonoid.units_isOpen»                 proof-uses=3    stmt-uses=0    downstream=4
+  «MeasureTheory.addEquivAddHaarChar_smul_map» proof-uses=2    stmt-uses=1    downstream=29
+  «MeasureTheory.addEquivAddHaarChar_smul_preimage» proof-uses=2    stmt-uses=1    downstream=22
+  «MeasureTheory.addEquivAddHaarChar_prodCongr» proof-uses=2    stmt-uses=2    downstream=17
+  «NumberField.AdeleRing.DivisionAlgebra.Aux.E» proof-uses=2    stmt-uses=2    downstream=15
+  «Algebra.IsInvariant.charpoly_mem_lifts» proof-uses=2    stmt-uses=0    downstream=6
+  Frey_curve_hardly_ramified               proof-uses=2    stmt-uses=0    downstream=4
+  fixed_of_fixed1_aux1                     proof-uses=2    stmt-uses=0    downstream=4
+
+Missing informal coverage: 0 entries

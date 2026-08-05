@@ -1,0 +1,49 @@
+Source: https://github.com/ejgallego/verso-noperthedron.git @ ad062f0d
+
+Theorem entries: 59
+  claimed (blueprint's own bookkeeping):
+    closed:            37
+    incomplete-deps:   14
+    sorry:             0
+    no-proof:          8
+  machine (probe-lean cross-check):
+    closed:            0
+    incomplete-deps:   0
+    sorry:             0
+    no-proof:          59
+
+Actionable (statement ready, deps formalized): 9
+  «corr:deltakappa»
+  «def:pointsymmetrize»
+  «lem:leq1»
+  «lem:n2»
+  «lem:radius_noperthedron_one»
+  «lemma:pointsymmetrization_is_pointsym»
+  «thm:exists_solution_table»
+  «thm:pointsymmetrize_pres_radius»
+  «thm:polyhedron_radius_iff»
+
+Most used in statements (top entries by statement uses):
+  «def:noperthedron»                       stmt-uses=5    proof-uses=0    downstream=9
+  «def:ekspanning»                         stmt-uses=2    proof-uses=0    downstream=11
+  «dfn:sin_cos_approx»                     stmt-uses=1    proof-uses=0    downstream=19
+  «def:eps-spanning»                       stmt-uses=1    proof-uses=0    downstream=13
+  «def:spanp»                              stmt-uses=1    proof-uses=0    downstream=13
+  «def:LMD»                                stmt-uses=1    proof-uses=0    downstream=12
+  «def:C15»                                stmt-uses=1    proof-uses=0    downstream=10
+  «def:pointsymmetrize»                    stmt-uses=1    proof-uses=0    downstream=10
+  «def:pointsymmetric»                     stmt-uses=1    proof-uses=0    downstream=4
+
+Most used in proofs (top entries by proof uses):
+  «lem:sqrt2»                              proof-uses=6    stmt-uses=0    downstream=18
+  «lem:A1AnB1Bn»                           proof-uses=3    stmt-uses=0    downstream=16
+  «corr:kappa1kappa»                       proof-uses=3    stmt-uses=0    downstream=15
+  «lem:RxRy»                               proof-uses=2    stmt-uses=0    downstream=19
+  «lem:RaRalpha»                           proof-uses=2    stmt-uses=0    downstream=16
+  «lem:eps-spanning»                       proof-uses=2    stmt-uses=0    downstream=12
+  «lem:boundskappa3»                       proof-uses=2    stmt-uses=0    downstream=11
+  «lem:sin27cos26»                         proof-uses=1    stmt-uses=0    downstream=18
+  «lem:A_le_deltamn»                       proof-uses=1    stmt-uses=0    downstream=17
+  «lem:kappa7»                             proof-uses=1    stmt-uses=0    downstream=17
+
+Missing informal coverage: 0 entries

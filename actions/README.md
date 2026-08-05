@@ -1,8 +1,8 @@
 # Actions
 
 Composite actions, each usable on its own as
-`Beneficial-AI-Foundation/veritooling/actions/<name>@v1`. Most projects don't
-call these directly — they use the reusable workflows in
+`Beneficial-AI-Foundation/veritooling/actions/<name>@v1`. Most projects do not
+call these directly; they use the reusable workflows in
 [`.github/workflows`](../.github/workflows), which compose them. See that
 folder's README for how the pieces fit together.
 

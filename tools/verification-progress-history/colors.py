@@ -11,7 +11,7 @@ Two channels (see the doc for the full definition):
   Colour BAR  -- Rust ``exec`` atoms (language "rust", kind "exec").
     Pure function of (untracked, verification-status):
       grey        untracked: true            (out of verification scope)
-      white       no verification-status     (tracked, no spec yet)
+      white       no verification-status     (unspecified, no spec yet)
       red         "failed"
       yellow      "unverified"               (sorry / assume)
       light_green "verified"

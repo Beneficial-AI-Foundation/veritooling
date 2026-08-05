@@ -1,0 +1,52 @@
+Source: https://github.com/Beneficial-AI-Foundation/KeyedVerificationAnonymousCredential-model.git @ ab91ef60
+
+Theorem entries: 17
+  claimed (blueprint's own bookkeeping):
+    closed:            1
+    incomplete-deps:   2
+    sorry:             0
+    no-proof:          14
+  machine (probe-lean cross-check):
+    closed:            1
+    incomplete-deps:   2
+    sorry:             0
+    no-proof:          14
+  WARNING: dependency cycle(s) detected at: ['attribute_lifting', 'single_attribute_mac']
+
+Actionable (statement ready, deps formalized): 10
+  anonymous_tokens
+  credential_predicate
+  extractability_game
+  forgery_case_gap_dl
+  forgery_case_mac
+  mucmz_mac_security
+  omuf_case_i
+  omuf_case_ii
+  omuf_case_iii
+  zk_arguments
+
+Most used in statements (top entries by statement uses):
+  mucmz_construction                       stmt-uses=7    proof-uses=0    downstream=15
+  hardness_assumptions                     stmt-uses=6    proof-uses=0    downstream=12
+  algebraic_mac                            stmt-uses=4    proof-uses=0    downstream=21
+  kvac_syntax                              stmt-uses=4    proof-uses=0    downstream=19
+  ufcmva_game                              stmt-uses=4    proof-uses=0    downstream=8
+  zk_arguments                             stmt-uses=4    proof-uses=0    downstream=5
+  sampleable_group                         stmt-uses=3    proof-uses=0    downstream=19
+  mucmz_base_mac                           stmt-uses=3    proof-uses=0    downstream=18
+  agm_verification_polynomial              stmt-uses=2    proof-uses=1    downstream=8
+  nizkp_syntax                             stmt-uses=2    proof-uses=0    downstream=7
+
+Most used in proofs (top entries by proof uses):
+  agm_verification_polynomial              proof-uses=1    stmt-uses=2    downstream=8
+  agm_model                                proof-uses=1    stmt-uses=0    downstream=6
+  partial_evaluation_psi                   proof-uses=1    stmt-uses=0    downstream=6
+  identity_case_lem54                      proof-uses=1    stmt-uses=0    downstream=6
+  sign_masks                               proof-uses=1    stmt-uses=0    downstream=6
+  forgery_case_gap_dl                      proof-uses=1    stmt-uses=0    downstream=6
+  forgery_case_mac                         proof-uses=1    stmt-uses=0    downstream=6
+  attribute_lifting                        proof-uses=1    stmt-uses=0    downstream=5
+  mucmz_mac_security                       proof-uses=1    stmt-uses=1    downstream=5
+  single_attribute_mac                     proof-uses=1    stmt-uses=1    downstream=5
+
+Missing informal coverage: 0 entries
