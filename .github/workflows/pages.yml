@@ -1,0 +1,39 @@
+name: Deploy dashboard to Pages
+
+# Publishes the verification-progress dashboard as a static GitHub Pages site.
+# Runs on the feature branch for a pre-merge preview; drop that branch from the
+# trigger once #57 merges so it only publishes from main.
+on:
+  push:
+    branches: [main, feat/dashboard-poc]
+    paths:
+      - tools/verification-progress-history/dashboard-poc/index.html
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          cp tools/verification-progress-history/dashboard-poc/index.html _site/index.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
