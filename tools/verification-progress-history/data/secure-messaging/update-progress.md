@@ -6,11 +6,11 @@ Run everything from the tool directory:
 cd tools/verification-progress-history
 ```
 
-Data lives in `data/secure-messaging/`. Last recorded sample: **2026-07-22**
-(`progress.jsonl`, 5 rows). Sampling re-runs the real verifier per commit, so it
-is slow (~10–13 min/commit here); plotting is free.
+Data lives in `data/secure-messaging/`. Last recorded sample: **2026-08-12**
+(`progress.jsonl`, 8 rows). Sampling re-runs the real verifier per commit, so it
+is slow (~13–18 min/commit here); plotting is free.
 
-The committed series is **weekly** (Wednesday-anchored: 2026-06-24 … 2026-07-22),
+The committed series is **weekly** (Wednesday-anchored: 2026-06-24 … 2026-08-12),
 so extend it with `--cadence weekly`.
 
 ## Prerequisites (on PATH, pinned for the whole run)
@@ -29,7 +29,7 @@ week with no new commit adds nothing:
 python3 progress_history.py <repo> \
   --pipeline leanblueprint --cadence weekly \
   --verso-render-cmd scripts/render-docs-site.sh \
-  --since 2026-07-22 --resume \
+  --since 2026-08-12 --resume \
   --work-clone /tmp/vph-secure-messaging \
   --dep-cache-dir /tmp/vph-depcache \
   --sample-timeout 3600
