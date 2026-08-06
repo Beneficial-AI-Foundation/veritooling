@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dalek-verus - verification progress</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<style>
+  :root {
+    --bg: #f6f6f8; --surface: #ffffff; --ink: #23232b; --muted: #6b6b76;
+    --border: #e4e4ea; --grid: rgba(60,60,80,.10);
+  }
+  html[data-theme="dark"] {
+    --bg: #14141a; --surface: #1e1e26; --ink: #e9e9f0; --muted: #9a9aa6;
+    --border: #2c2c36; --grid: rgba(200,200,220,.12);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+    padding: 20px 24px 8px;
+  }
+  header h1 { font-size: 20px; margin: 0; font-weight: 650; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  header .spacer { flex: 1; }
+  button.theme {
+    border: 1px solid var(--border); background: var(--surface); color: var(--ink);
+    border-radius: 8px; padding: 6px 12px; cursor: pointer; font: inherit;
+  }
+  .kpis { display: flex; gap: 12px; flex-wrap: wrap; padding: 8px 24px 4px; }
+  .kpi {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 16px; min-width: 150px;
+  }
+  .kpi .v { font-size: 26px; font-weight: 680; letter-spacing: -.02em; }
+  .kpi .l { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .grid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px; padding: 12px 24px 28px;
+  }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 12px 4px;
+  }
+  .card h2 { font-size: 14px; margin: 4px 6px 0; font-weight: 620; }
+  .card p.hint { margin: 2px 6px 6px; color: var(--muted); font-size: 12px; }
+  .plot { width: 100%; height: 300px; }
+  footer { color: var(--muted); font-size: 12px; padding: 0 24px 28px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>dalek-verus</h1>
+  <span class="sub" id="span"></span>
+  <span class="spacer"></span>
+  <button class="theme" id="themeBtn">Dark mode</button>
+</header>
+<div class="kpis" id="kpis"></div>
+<div class="grid">
+  <div class="card"><h2>Burn-up</h2>
+    <p class="hint">Verified & completion frontier climbing toward the tracked ceiling.</p>
+    <div class="plot" id="burnup"></div></div>
+  <div class="card"><h2>Verification frontier</h2>
+    <p class="hint">Share of tracked code that is verified / verified+trusted.</p>
+    <div class="plot" id="frontier"></div></div>
+  <div class="card"><h2>Exec-atom status composition</h2>
+    <p class="hint">How the tracked code base moved between statuses over time.</p>
+    <div class="plot" id="composition"></div></div>
+  <div class="card"><h2>Verification artifacts checked</h2>
+    <p class="hint">Specs & proofs the tool accepted / flagged at each sample.</p>
+    <div class="plot" id="artifacts"></div></div>
+  <div class="card"><h2>Run health</h2>
+    <p class="hint">Sampling-run duration; red marks a run the verifier could not complete.</p>
+    <div class="plot" id="health"></div></div>
+</div>
+<footer id="footer"></footer>
+
+<script>
+const DATA = {"repo": "dalek-verus", "rows": [{"sample_date": "2025-07-18", "commit": "04be8a274", "commit_date": "2025-07-18T15:13:14+00:00", "status": "verify_error", "reason": "verify produced no statuses (exit=1); likely build/toolchain error", "duration_sec": 71.8, "grey": 288, "white": 493, "red": 0, "yellow": 0, "light_green": 0, "dark_green": 0, "purple": 1, "exec_total": 782, "dot_red": 0, "dot_yellow": 0, "dot_green": 25, "art_total": 25, "tracked": 494, "verified": 0, "verified_trusted": 1, "translated": 0}, {"sample_date": "2025-08-15", "commit": "4734da5d8", "commit_date": "2025-08-13T10:25:02+00:00", "status": "ok", "reason": "", "duration_sec": 17.4, "grey": 80, "white": 269, "red": 0, "yellow": 7, "light_green": 3, "dark_green": 13, "purple": 3, "exec_total": 375, "dot_red": 0, "dot_yellow": 0, "dot_green": 114, "art_total": 114, "tracked": 295, "verified": 16, "verified_trusted": 19, "translated": 0}, {"sample_date": "2025-09-12", "commit": "e392e2171", "commit_date": "2025-09-08T14:09:31+00:00", "status": "ok", "reason": "", "duration_sec": 16.7, "grey": 80, "white": 280, "red": 0, "yellow": 8, "light_green": 3, "dark_green": 12, "purple": 3, "exec_total": 386, "dot_red": 0, "dot_yellow": 0, "dot_green": 142, "art_total": 142, "tracked": 306, "verified": 15, "verified_trusted": 18, "translated": 0}, {"sample_date": "2025-10-10", "commit": "5c6389562", "commit_date": "2025-10-10T18:40:15+00:00", "status": "ok", "reason": "", "duration_sec": 38.1, "grey": 80, "white": 272, "red": 0, "yellow": 16, "light_green": 5, "dark_green": 15, "purple": 10, "exec_total": 398, "dot_red": 0, "dot_yellow": 0, "dot_green": 155, "art_total": 155, "tracked": 318, "verified": 20, "verified_trusted": 30, "translated": 0}, {"sample_date": "2025-11-07", "commit": "8c3d0acae", "commit_date": "2025-11-07T18:19:48+00:00", "status": "ok", "reason": "", "duration_sec": 24.5, "grey": 73, "white": 196, "red": 0, "yellow": 58, "light_green": 8, "dark_green": 40, "purple": 45, "exec_total": 420, "dot_red": 0, "dot_yellow": 1, "dot_green": 370, "art_total": 371, "tracked": 347, "verified": 48, "verified_trusted": 93, "translated": 0}, {"sample_date": "2025-12-05", "commit": "76c4c2faf", "commit_date": "2025-12-05T14:42:17+00:00", "status": "ok", "reason": "", "duration_sec": 100.0, "grey": 87, "white": 123, "red": 0, "yellow": 81, "light_green": 37, "dark_green": 72, "purple": 51, "exec_total": 451, "dot_red": 0, "dot_yellow": 2, "dot_green": 671, "art_total": 673, "tracked": 364, "verified": 109, "verified_trusted": 160, "translated": 0}, {"sample_date": "2026-01-02", "commit": "1b82b3da6", "commit_date": "2025-12-31T04:03:12+00:00", "status": "ok", "reason": "", "duration_sec": 31.4, "grey": 87, "white": 105, "red": 0, "yellow": 84, "light_green": 50, "dark_green": 92, "purple": 54, "exec_total": 472, "dot_red": 0, "dot_yellow": 2, "dot_green": 760, "art_total": 762, "tracked": 385, "verified": 142, "verified_trusted": 196, "translated": 0}, {"sample_date": "2026-01-30", "commit": "e083340cb", "commit_date": "2026-01-28T16:27:37+00:00", "status": "ok", "reason": "", "duration_sec": 39.0, "grey": 99, "white": 59, "red": 0, "yellow": 82, "light_green": 58, "dark_green": 131, "purple": 75, "exec_total": 504, "dot_red": 0, "dot_yellow": 7, "dot_green": 918, "art_total": 925, "tracked": 405, "verified": 189, "verified_trusted": 264, "translated": 0}, {"sample_date": "2026-02-27", "commit": "8325bb6db", "commit_date": "2026-02-27T08:32:34+00:00", "status": "ok", "reason": "", "duration_sec": 84.4, "grey": 114, "white": 55, "red": 0, "yellow": 10, "light_green": 49, "dark_green": 207, "purple": 78, "exec_total": 513, "dot_red": 0, "dot_yellow": 3, "dot_green": 1307, "art_total": 1310, "tracked": 399, "verified": 256, "verified_trusted": 334, "translated": 0}, {"sample_date": "2026-03-27", "commit": "3f3443e0b", "commit_date": "2026-03-26T11:54:58+00:00", "status": "ok", "reason": "", "duration_sec": 84.9, "grey": 139, "white": 44, "red": 0, "yellow": 0, "light_green": 49, "dark_green": 231, "purple": 77, "exec_total": 540, "dot_red": 0, "dot_yellow": 3, "dot_green": 1480, "art_total": 1483, "tracked": 401, "verified": 280, "verified_trusted": 357, "translated": 0}, {"sample_date": "2026-04-17", "commit": "d4c6a9446", "commit_date": "2026-04-14T09:34:16+00:00", "status": "ok", "reason": "", "duration_sec": 51.6, "grey": 139, "white": 44, "red": 0, "yellow": 0, "light_green": 49, "dark_green": 231, "purple": 77, "exec_total": 540, "dot_red": 0, "dot_yellow": 3, "dot_green": 1480, "art_total": 1483, "tracked": 401, "verified": 280, "verified_trusted": 357, "translated": 0}, {"sample_date": "2026-05-22", "commit": "9bb7fd09c", "commit_date": "2026-05-21T16:05:51+00:00", "status": "ok", "reason": "", "duration_sec": 66.8, "grey": 139, "white": 44, "red": 0, "yellow": 0, "light_green": 27, "dark_green": 253, "purple": 77, "exec_total": 540, "dot_red": 0, "dot_yellow": 1, "dot_green": 1482, "art_total": 1483, "tracked": 401, "verified": 280, "verified_trusted": 357, "translated": 0}, {"sample_date": "2026-07-17", "commit": "5b70dd737", "commit_date": "2026-07-17T13:37:07+00:00", "status": "ok", "reason": "", "duration_sec": 70.6, "grey": 195, "white": 0, "red": 0, "yellow": 0, "light_green": 27, "dark_green": 253, "purple": 61, "exec_total": 536, "dot_red": 0, "dot_yellow": 1, "dot_green": 1482, "art_total": 1483, "tracked": 341, "verified": 280, "verified_trusted": 341, "translated": 0}], "col": {"tracked": "#888899", "verified_trusted": "#7B64B8", "verified": "#1F8A65", "grey": "#B8B8C4", "white": "#B08D57", "red": "#C0392B", "yellow": "#E8833A", "light_green": "#1F8A65", "dark_green": "#14664A", "purple": "#7B64B8"}, "span": "2025-07-18 to 2026-07-17"};
+const R = DATA.rows, C = DATA.col;
+const ok = R.filter(r => r.status === "ok");
+const x = ok.map(r => r.sample_date);
+document.getElementById("span").textContent = DATA.span + "  -  " + R.length + " samples";
+
+function themed() {
+  const dark = document.documentElement.getAttribute("data-theme") === "dark";
+  const ink = dark ? "#e9e9f0" : "#23232b";
+  const muted = dark ? "#9a9aa6" : "#6b6b76";
+  const grid = dark ? "rgba(200,200,220,.14)" : "rgba(60,60,80,.10)";
+  return {
+    paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: { color: ink, size: 12 },
+    margin: { l: 48, r: 16, t: 8, b: 36 },
+    legend: { orientation: "h", y: -0.22, font: { size: 11 } },
+    xaxis: { gridcolor: grid, linecolor: grid, tickfont: { color: muted } },
+    yaxis: { gridcolor: grid, linecolor: grid, tickfont: { color: muted }, rangemode: "tozero" },
+    hovermode: "x unified",
+  };
+}
+const CFG = { responsive: true, displaylogo: false,
+  modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"] };
+
+function line(name, y, color, dash) {
+  return { x, y, name, mode: "lines+markers", type: "scatter",
+    line: { color, width: 2, dash: dash || "solid" }, marker: { size: 6, color } };
+}
+function areaStack(name, y, color) {
+  return { x, y, name, mode: "lines", type: "scatter", stackgroup: "s",
+    line: { width: 0.5, color }, fillcolor: color };
+}
+
+// KPIs
+const last = ok[ok.length - 1] || {};
+const pct = last.tracked ? Math.round(100 * last.verified / last.tracked) : 0;
+const pctT = last.tracked ? Math.round(100 * last.verified_trusted / last.tracked) : 0;
+const kpis = [
+  ["Verified", last.verified, "of " + last.tracked + " tracked"],
+  ["Verified", pct + "%", "of tracked code"],
+  ["Verified + trusted", pctT + "%", "completion frontier"],
+  ["Artifacts checked", last.art_total, "specs & proofs"],
+];
+document.getElementById("kpis").innerHTML = kpis.map(k =>
+  `<div class="kpi"><div class="v">${k[1]}</div>` +
+  `<div class="l">${k[0]} - ${k[2]}</div></div>`).join("");
+
+function draw() {
+  const L = themed();
+  Plotly.react("burnup", [
+    line("tracked (ceiling)", ok.map(r => r.tracked), C.tracked, "dot"),
+    line("verified + trusted", ok.map(r => r.verified_trusted), C.verified_trusted),
+    line("verified", ok.map(r => r.verified), C.verified),
+  ], { ...L, yaxis: { ...L.yaxis, title: { text: "exec atoms" } } }, CFG);
+
+  const vtPct = ok.map(r => r.tracked ? 100 * r.verified_trusted / r.tracked : 0);
+  const vPct = ok.map(r => r.tracked ? 100 * r.verified / r.tracked : 0);
+  Plotly.react("frontier", [
+    line("verified+trusted %", vtPct, C.verified_trusted),
+    line("verified %", vPct, C.verified),
+  ], { ...L, yaxis: { ...L.yaxis, title: { text: "% of tracked" }, range: [0, 100] } }, CFG);
+
+  Plotly.react("composition", [
+    areaStack("verified", ok.map(r => r.light_green), C.light_green),
+    areaStack("transitively-verified", ok.map(r => r.dark_green), C.dark_green),
+    areaStack("trusted", ok.map(r => r.purple), C.purple),
+    areaStack("in-progress (sorry/assume)", ok.map(r => r.yellow), C.yellow),
+    areaStack("failed", ok.map(r => r.red), C.red),
+    areaStack("unspecified (no spec)", ok.map(r => r.white), C.white),
+  ], { ...L, yaxis: { ...L.yaxis, title: { text: "tracked exec atoms" } } }, CFG);
+
+  const bar = (y, name, color) => ({ x, y, name, type: "bar", marker: { color } });
+  Plotly.react("artifacts", [
+    bar(ok.map(r => r.dot_green), "accepted", C.light_green),
+    bar(ok.map(r => r.dot_yellow), "unverified", C.yellow),
+    bar(ok.map(r => r.dot_red), "failed", C.red),
+  ], { ...L, barmode: "stack", yaxis: { ...L.yaxis, title: { text: "artifacts" } } }, CFG);
+
+  // Run health includes error runs; colour by status.
+  const hx = R.map(r => r.sample_date);
+  const hcol = R.map(r => r.status === "ok" ? C.verified : C.red);
+  const htext = R.map(r => r.status === "ok" ? "ok" : (r.reason || r.status));
+  Plotly.react("health", [{
+    x: hx, y: R.map(r => r.duration_sec), type: "bar",
+    marker: { color: hcol }, text: htext, textposition: "none",
+    hovertemplate: "%{x}<br>%{y:.1f}s<br>%{text}<extra></extra>",
+  }], { ...L, hovermode: "closest", yaxis: { ...L.yaxis, title: { text: "seconds" } } }, CFG);
+}
+draw();
+
+document.getElementById("themeBtn").addEventListener("click", () => {
+  const el = document.documentElement;
+  const dark = el.getAttribute("data-theme") === "dark";
+  el.setAttribute("data-theme", dark ? "light" : "dark");
+  document.getElementById("themeBtn").textContent = dark ? "Dark mode" : "Light mode";
+  draw();
+});
+document.getElementById("footer").textContent =
+  "POC - generated from data/" + DATA.repo + "/progress.csv by build_dashboard.py. " +
+  "Metric-charts show only successful sampling runs; Run health shows all.";
+</script>
+</body>
+</html>
