@@ -15,9 +15,9 @@ progress metrics" doc, section "The three categories":
 `tracked` is the ceiling (``tracked ≥ completed`` and ``tracked ≥ in-progress``),
 and `in-progress` / `completed` are disjoint but do **not** sum to `tracked` — the
 remaining gap holds the units that are neither, `unspecified` (white) and `failed`
-(red). Everything beyond those three is opt-in, one flag per bucket of the summary
-partition, each drawn from zero, so the default chart says one thing per pipeline:
-
+(red). Everything beyond those three is opt-in; most flags add one bucket of the
+summary partition (drawn from zero). `--translated` is a milestone overlay, so the
+default chart says one thing per pipeline:
     --trusted      purple: the axiom-backed part of `completed`
     --unspecified  white: in scope, no spec written yet (no statement, for blueprints)
     --failed       red: a failed verification / elaboration error
