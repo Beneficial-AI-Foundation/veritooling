@@ -30,20 +30,22 @@ python3 plot_progress.py data/dalek-verus/progress.jsonl -o /tmp/burnup.svg
 ```
 
 This regenerates the committed `data/dalek-verus/burnup.svg` from its source
-JSONL. Add `--in-progress` (yellow, incomplete proofs) and `--unspecified`
-(white, no spec yet) to draw those frontiers, and `--png` for a raster copy.
+JSONL. It draws the three categories and nothing else; each further curve is one
+flag (`--trusted`, `--unspecified`, `--failed`, `--translated`, `--unrealized`),
+and `--png` writes a raster copy.
 
 The other pipelines' committed series work the same way:
 
 | Data dir | Pipeline | Chart |
 |----------|----------|-------|
-| `data/dalek-verus/` | Verus | colour burn-up |
-| `data/SparsePostQuantumRatchet-verify/` | Aeneas | colour burn-up (has `translated`) |
-| `data/secure-messaging/` | leanblueprint | two-panel (Definitions, Theorems); `--combined` for one panel |
-| `data/kvac-model-from-probe-lean/` | lean | two-panel, no fixed ceiling; `--combined` supported |
+| `data/dalek-verus/` | Verus | unit: `exec` atom |
+| `data/SparsePostQuantumRatchet-verify/` | Aeneas | unit: `exec` atom (`--translated` available) |
+| `data/secure-messaging/` | leanblueprint | unit: blueprint node, defs and thms pooled |
+| `data/kvac-model-from-probe-lean/` | lean | unit: declaration, defs and thms pooled; ceiling labelled `total` |
 
-The mode (colour, two-panel, combined) is auto-detected from the records. You do
-not pass `--pipeline` to `plot_progress.py`.
+The unit is auto-detected from the records; you do not pass `--pipeline` to
+`plot_progress.py`. For the two Lean series, `--split` renders the older
+diagnostic two-panel layout into `burnup-split.svg` instead.
 
 ## Inspect one commit's numbers
 
@@ -78,14 +80,19 @@ version, config files) are in the [tool README](../README.md#run) and
 
 ## What to look at in the chart
 
-Read it as nested frontiers, each larger band containing the smaller ones:
+Three curves:
 
 - **tracked** (ceiling): everything in scope.
-- **verified+trusted**: the completion frontier (green plus purple/axiom).
-- **verified**: proved with no trust reliance (green).
-- The gap between `tracked` and `verified+trusted` is unspecified (white) plus
-  in-progress (yellow) plus failed (red). `--in-progress` and `--unspecified`
-  split those out; red draws itself when a sample has a failure.
+- **completed**: `verified + transitively-verified + trusted`. The project is done
+  on the chart when this meets the ceiling.
+- **in-progress**: a spec exists but the proof is not closed (a `sorry` or
+  `assume`).
+
+`completed` and `in-progress` are disjoint but do not sum to `tracked`. What is
+left over is `unspecified` (in scope, no spec yet) plus `failed`, so the gap must
+not be read as the sorry count. `--unspecified` and `--failed` split it open, and
+`--trusted` adds the axiom-backed part of `completed`. A withheld `--failed` count
+is still printed on stderr, so a failing sample cannot pass unnoticed.
 
 Only `ok` samples are plotted; other statuses (`setup_failed`, `extract_failed`,
 `timeout`, …) show as gaps noted in the caption. The full vocabulary and the

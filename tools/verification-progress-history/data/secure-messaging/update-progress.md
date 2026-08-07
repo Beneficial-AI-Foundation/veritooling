@@ -45,20 +45,23 @@ python3 progress_history.py <repo> \
 
 `progress.jsonl` and `progress.csv` are rewritten in place.
 
-## 2. Regenerate the charts
+## 2. Regenerate the chart
 
 Free, no verifier. Reproduces the committed SVG/PNG from the JSONL:
 
 ```bash
-# Two-panel (Definitions, Theorems)
 python3 plot_progress.py data/secure-messaging/progress.jsonl --png
-
-# Single combined panel (pooled nodes, probe-lean proof status)
-python3 plot_progress.py data/secure-messaging/progress.jsonl --combined --png
 ```
 
-Writes `burnup.svg`/`.png` and `burnup-combined.svg`/`.png` alongside the JSONL.
-Add `--in-progress` (yellow) and `--unspecified` (white) to draw those frontiers.
+Writes `burnup.svg`/`.png` alongside the JSONL: one panel, blueprint nodes pooled
+across definitions and theorems, drawing `tracked` / `in-progress` / `completed`
+with the proof status from probe-lean. This is the only committed chart.
+
+Optional views, none of them committed: `--unspecified` adds the nodes with no
+formalized statement yet, `--unrealized` the ones claiming a statement with no
+bound declaration, `--trusted` the axiom-backed part of `completed`, and `--split`
+writes the diagnostic two-panel `burnup-split.svg` in the blueprint's own
+`total`/`formalized`/`proved` vocabulary.
 
 Only `ok` samples are plotted; other statuses show as captioned gaps. See
 [`../../guides/history-burnup.md`](../../guides/history-burnup.md) and

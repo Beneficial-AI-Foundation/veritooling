@@ -1447,9 +1447,9 @@ def main(argv=None):
             failed += 1
         append_record(jsonl, csv_path, record)
         print(
-            f"     {record['status']}: tracked={metrics['tracked']} verified={metrics['verified']} "
-            f"v+t={metrics['verified_trusted']} translated={metrics['translated']} "
-            f"({record['duration_sec']}s)"
+            f"     {record['status']}: tracked={metrics['tracked']} "
+            f"in-progress={metrics['in_progress']} completed={metrics['completed']} "
+            f"translated={metrics['translated']} ({record['duration_sec']}s)"
         )
 
     print(f"[done] processed {processed} new sample(s); output: {jsonl}")

@@ -63,13 +63,13 @@ axis-explicit (`Formalized`, `Proved`) rather than the site's overloaded
 definition/theorem difference is carried by theorems having a second milestone
 (`Proved`) that definitions lack.
 
-## Combined chart (`plot_progress.py --combined`)
+## Default chart (`plot_progress.py`)
 
-The two-panel chart keys definitions and theorems off the **blueprint** axes. The
-combined chart instead pools every node into one panel and takes the proof status
-from **probe-lean**, in the FC ("Atom statuses and colours") vocabulary. Each
-formalized node's bound-atom `verification-status` values roll up to one node
-status by worst-status precedence:
+The `--split` two-panel chart keys definitions and theorems off the **blueprint**
+axes. The default chart instead pools every node into one panel and takes the proof
+status from **probe-lean**, in the three-category vocabulary. Each formalized
+node's bound-atom `verification-status` values roll up to one node status by
+worst-status precedence:
 
 ```
 failed  >  unverified  >  trusted  >  {verified, transitively-verified}
@@ -89,8 +89,11 @@ of strict `verified`. Every node then lands in exactly one bucket:
 | **verified + trusted** | the `verified` bucket plus nodes whose rollup is `trusted` |
 
 Per kind, `verified + trusted + in_progress + failed + unrealized` equals
-`formalized`, and `unspecified` is `total − formalized`. The plotted `verified`
-and `verified + trusted` series sum definitions and theorems together.
+`formalized`, and `unspecified` is `total − formalized`. The chart's `completed`
+category is `verified + trusted`, summed over definitions and theorems; `tracked`
+is the node total, `in-progress` the bucket above. The `trusted` slice of that sum
+is what `--trusted` draws, and `unspecified` / `failed` / `unrealized` are the
+remaining opt-in overlays.
 
 Two caveats. Trust is detected only within a node's own bindings, so a green node
 depending on an axiom in another node still reads `verified` (a full fix needs a

@@ -28,11 +28,15 @@ detection + transitive contamination pass):
                                                     / *External.lean (assumed)
   failed          status "failed"                -- elaboration error
 
-The burn-up (plot_progress.py) draws three nested frontiers from these, per
-bucket, mirroring the VeriLib "verified + trusted" completion frontier:
+The default burn-up (plot_progress.py) pools the two buckets and draws the three
+categories: ``total`` (the ceiling, since probe-lean has no curated tracked set),
+``in-progress`` (= ``sorry``), and ``completed`` (= verified + trans_verified +
+trusted). ``plot_progress.py --split`` keeps the older per-bucket layout, whose
+three nested frontiers are finer:
 
   total                                                        (growing ceiling)
-   >= without sorry  = verified + trans_verified + trusted     (no local sorry)
+   >= without sorry  = verified + trans_verified + trusted     (no local sorry;
+                                                                = ``completed``)
        >= trust boundary = trans_verified + trusted            (sound modulo the
                                                                  axioms/trust base)
 
@@ -154,7 +158,7 @@ def _format_bucket(m: dict, title: str, p: str) -> list[str]:
     return [
         title,
         f"  Total:          {m[p + 'total']}",
-        f"  Without sorry:  {_no_sorry(m, p)}   (verified + trans-verified + trusted)",
+        f"  Without sorry:  {_no_sorry(m, p)}   (the chart's `completed`)",
         f"  Trust boundary: {_trust_boundary(m, p)}   (trans-verified + trusted)",
         f"    sorry:          {m[p + 'sorry']}",
         f"    verified:       {m[p + 'verified']}   (locally clean, dep contaminated)",

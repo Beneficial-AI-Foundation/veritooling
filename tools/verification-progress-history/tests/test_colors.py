@@ -58,6 +58,11 @@ def test_bar_and_dot_counts():
     assert m["verified"] == 2  # light + dark green
     assert m["verified_trusted"] == 3  # + purple
     assert m["translated"] == 2
+    # The three chart categories, as plot_progress.py draws them by default.
+    assert m["in_progress"] == 1  # yellow
+    assert m["completed"] == 3  # green + purple
+    # Disjoint but not a partition: white + red is the remaining gap.
+    assert m["in_progress"] + m["completed"] + m["white"] + m["red"] == m["tracked"]
     assert (m["dot_green"], m["dot_yellow"], m["dot_red"]) == (1, 1, 0)
     assert m["art_total"] == 2
     assert m["warnings"] == []  # bar/dot covers reconcile
