@@ -115,8 +115,8 @@ Plots only `ok` samples; gaps are noted in the caption. Every pipeline draws one
 auto-detected from the records. A Lean project's definitions and theorems are
 pooled into that single panel.
 
-Each further curve is one flag, off by default. Every one is a bucket of the
-summary partition, drawn from zero:
+Each further curve is one flag, off by default. Most are buckets of the
+summary partition drawn from zero; `--translated` is a milestone overlay:
 
 | Flag | Adds | Pipelines |
 |------|------|-----------|
