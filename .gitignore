@@ -1,6 +1,10 @@
 __pycache__/
 *.pyc
 
+# Local DB credentials / venv (keep .env.example)
+tools/verification-progress-history/.env
+tools/verification-progress-history/.venv/
+
 # Security report kept locally, not published
 docs/SECURITY.md
 

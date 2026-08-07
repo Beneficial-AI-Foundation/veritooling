@@ -40,6 +40,8 @@ leanblueprint numbers are computed.
 | `blueprint_progress.py` | Two-axis blueprint metric record (leanblueprint) from one extract JSON. |
 | `lean_progress.py` | Kind-split sorry metric record (plain `lean`) from one extract JSON. |
 | `plot_progress.py` | Render the burn-up chart (SVG, optional PNG). |
+| `persist_progress_jsonl.py` | Write `ok` samples into VeriLib `repostats` (meaning-based fields). |
+| `repos.map.json` | Project → `{dev,staging,prod}` VeriLib `repo_id` map. |
 | `bp_graph.py` | Build the blueprint dependency-graph model from one extract JSON. |
 | `plot_depgraph.py` | Render that graph as Graphviz DOT (SVG/PNG when `dot` is present). |
 | `blueprint_insights.py` | Closure split, most-used ranking, entry index, informal-coverage. |

@@ -1,0 +1,47 @@
+{
+  "curve25519-dalek-lean-verify": {
+    "signal_shot_key": "curve25519-dalek",
+    "repo_url": "https://github.com/Beneficial-AI-Foundation/curve25519-dalek-lean-verify",
+    "repo_ids": {
+      "dev": 5607,
+      "staging": 3178,
+      "prod": 5232
+    }
+  },
+  "SparsePostQuantumRatchet-verify": {
+    "signal_shot_key": "spqr-verify",
+    "repo_url": "https://github.com/Beneficial-AI-Foundation/SparsePostQuantumRatchet-verify",
+    "repo_ids": {
+      "dev": 5608,
+      "staging": 3175,
+      "prod": 5173
+    }
+  },
+  "secure-messaging": {
+    "signal_shot_key": "secure-messaging",
+    "repo_url": "https://github.com/Beneficial-AI-Foundation/secure-messaging",
+    "repo_ids": {
+      "dev": 5753,
+      "staging": 3218,
+      "prod": 5235
+    }
+  },
+  "dalek-verus": {
+    "signal_shot_key": "dalek-verus",
+    "repo_url": "https://github.com/Beneficial-AI-Foundation/dalek-verus",
+    "repo_ids": {
+      "dev": 5594,
+      "staging": 3171,
+      "prod": 5132
+    }
+  },
+  "kvac-model": {
+    "signal_shot_key":"kvac-model",
+    "repo_url": "https://github.com/Beneficial-AI-Foundation/KeyedVerificationAnonymousCredential-model",
+    "repo_ids": {
+      "dev": 5751,
+      "staging": 3220,
+      "prod": 5236
+    }
+  }
+}
