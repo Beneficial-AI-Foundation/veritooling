@@ -34,8 +34,8 @@ DEFAULT_CSV = HERE / ".." / "data" / "dalek-verus" / "progress.csv"
 # values in ../plot_progress.py). Semantic, not a free categorical choice.
 COL = {
     "tracked": "#888899",  # neutral ceiling
-    "verified_trusted": "#7B64B8",  # purple -- completion frontier
-    "verified": "#1F8A65",  # green -- proved frontier
+    "completed": "#1F8A65",  # green -- verified + transitively-verified + trusted
+    "verified": "#14664A",  # dark green -- completed minus the axiom-backed part
     "grey": "#B8B8C4",  # untracked / out of verification scope
     "white": "#B08D57",  # unspecified (tracked, no spec yet)
     "red": "#C0392B",  # failed
@@ -162,10 +162,12 @@ _TEMPLATE = r"""<!doctype html>
 <div class="kpis" id="kpis"></div>
 <div class="grid">
   <div class="card"><h2>Burn-up</h2>
-    <p class="hint">Verified & completion frontier climbing toward the tracked ceiling.</p>
+    <p class="hint">The three categories: completed climbing toward the tracked
+      ceiling, with in-progress alongside.</p>
     <div class="plot" id="burnup"></div></div>
-  <div class="card"><h2>Verification frontier</h2>
-    <p class="hint">Share of tracked code that is verified / verified+trusted.</p>
+  <div class="card"><h2>Completion</h2>
+    <p class="hint">Share of tracked code that is completed, and how much of it
+      holds without trusting an axiom.</p>
     <div class="plot" id="frontier"></div></div>
   <div class="card"><h2>Exec-atom status composition</h2>
     <p class="hint">How the tracked code base moved between statuses over time.</p>
@@ -218,9 +220,10 @@ const last = ok[ok.length - 1] || {};
 const pct = last.tracked ? Math.round(100 * last.verified / last.tracked) : 0;
 const pctT = last.tracked ? Math.round(100 * last.verified_trusted / last.tracked) : 0;
 const kpis = [
-  ["Verified", last.verified, "of " + last.tracked + " tracked"],
-  ["Verified", pct + "%", "of tracked code"],
-  ["Verified + trusted", pctT + "%", "completion frontier"],
+  ["Completed", last.verified_trusted, "of " + last.tracked + " tracked"],
+  ["Completed", pctT + "%", "of tracked code"],
+  ["In progress", last.yellow, "sorry / assume"],
+  ["Verified", pct + "%", "without trusting an axiom"],
   ["Artifacts checked", last.art_total, "specs & proofs"],
 ];
 document.getElementById("kpis").innerHTML = kpis.map(k =>
@@ -229,17 +232,19 @@ document.getElementById("kpis").innerHTML = kpis.map(k =>
 
 function draw() {
   const L = themed();
+  // The same three categories as the static burnup.svg. The finer cuts live in
+  // the other cards, which is what a dashboard can afford and a chart cannot.
   Plotly.react("burnup", [
     line("tracked (ceiling)", ok.map(r => r.tracked), C.tracked, "dot"),
-    line("verified + trusted", ok.map(r => r.verified_trusted), C.verified_trusted),
-    line("verified", ok.map(r => r.verified), C.verified),
+    line("completed", ok.map(r => r.verified_trusted), C.completed),
+    line("in-progress (sorry/assume)", ok.map(r => r.yellow), C.yellow),
   ], { ...L, yaxis: { ...L.yaxis, title: { text: "exec atoms" } } }, CFG);
 
   const vtPct = ok.map(r => r.tracked ? 100 * r.verified_trusted / r.tracked : 0);
   const vPct = ok.map(r => r.tracked ? 100 * r.verified / r.tracked : 0);
   Plotly.react("frontier", [
-    line("verified+trusted %", vtPct, C.verified_trusted),
-    line("verified %", vPct, C.verified),
+    line("completed %", vtPct, C.completed),
+    line("verified % (no axioms)", vPct, C.verified),
   ], { ...L, yaxis: { ...L.yaxis, title: { text: "% of tracked" }, range: [0, 100] } }, CFG);
 
   Plotly.react("composition", [
@@ -260,7 +265,7 @@ function draw() {
 
   // Run health includes error runs; colour by status.
   const hx = R.map(r => r.sample_date);
-  const hcol = R.map(r => r.status === "ok" ? C.verified : C.red);
+  const hcol = R.map(r => r.status === "ok" ? C.completed : C.red);
   const htext = R.map(r => r.status === "ok" ? "ok" : (r.reason || r.status));
   Plotly.react("health", [{
     x: hx, y: R.map(r => r.duration_sec), type: "bar",

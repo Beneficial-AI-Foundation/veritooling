@@ -5,11 +5,13 @@ time series. The tool samples one commit per period, re-runs the real verifier
 at each commit, and writes per-commit metrics to JSONL and CSV. `plot_progress.py`
 renders those as a burn-up chart.
 
-The metric set depends on the pipeline. Verus and Aeneas record the colour set
-(`tracked`, `verified`, `verified+trusted`, `translated`). The `leanblueprint`
-pipeline records a two-axis blueprint set (`formalized`, `proved`). The `lean`
-pipeline, for a Lean project with no blueprint, records a kind-split sorry set
-(`without sorry`, `trust boundary`, per definition and theorem).
+Every chart draws the same **three categories** — `tracked`, `in-progress`,
+`completed` — and differs only in the unit counted. The recorded metric set is
+richer than the chart, so the finer cuts stay available behind flags: Verus and
+Aeneas record the colour set (`tracked`, `verified`, `verified+trusted`,
+`translated`), `leanblueprint` records a two-axis blueprint set (`formalized`,
+`proved`), and `lean`, for a Lean project with no blueprint, records a kind-split
+sorry set (`without sorry`, `trust boundary`, per definition and theorem).
 
 Standalone Python 3.10+, standard library only. A full run is a multi-hour
 history walk that installs a toolchain per sampled commit.
@@ -108,31 +110,43 @@ guide for the per-pipeline reproducibility floors.
 python3 plot_progress.py data/dalek-verus/progress.jsonl --png
 ```
 
-Plots only `ok` samples; gaps are noted in the caption. The chart mode is
-auto-detected from the records:
+Plots only `ok` samples; gaps are noted in the caption. Every pipeline draws one
+`burnup.svg` with the [three categories](#how-to-read-the-charts); the unit is
+auto-detected from the records. A Lean project's definitions and theorems are
+pooled into that single panel.
 
-- **Colour** (Verus/Aeneas): one burn-up. `--in-progress` adds the yellow curve,
-  `--unspecified` adds white.
-- **Two-panel** (leanblueprint or lean): stacked Definitions and Theorems panels.
-  The lean panels have no fixed ceiling, since `total` (the declaration count)
-  grows over time.
-- **Combined** (`--combined`, leanblueprint or lean): one panel pooling
-  definitions and theorems, in the shared vocabulary below. Writes
-  `burnup-combined.svg` and never overwrites the two-panel `burnup.svg`. The
-  ceiling is a per-sample inventory that can fall as well as rise, so it is not
-  a strictly monotonic burn-up. `--strict` exits non-zero if any sample violates
-  the frontier nesting; the warning is stamped into the SVG either way.
+Each further curve is one flag, off by default. Most are buckets of the
+summary partition drawn from zero; `--translated` is a milestone overlay:
+
+| Flag | Adds | Pipelines |
+|------|------|-----------|
+| `--trusted` | the axiom-backed part of `completed` (`purple`), i.e. how much rests on an axiom or external declaration rather than a proof | all |
+| `--unspecified` | in scope but no spec written yet (`white`; "no formalized statement" for blueprints) | all but `lean` |
+| `--failed` | a failed verification or elaboration error (`red`) | all |
+| `--translated` | the Aeneas `translated` milestone | `aeneas` |
+| `--unrealized` | nodes claiming a statement with no bound declaration (an over-claim) | `leanblueprint` |
+
+A flag that does not apply to the pipeline at hand is reported and ignored rather
+than drawn as a flat zero line. `--failed` and `--unrealized` are the two that
+report trouble, so when either is non-zero but not drawn the count is printed on
+stderr — a project that starts failing is never silently invisible.
+
+`--split` (leanblueprint or lean) renders the older diagnostic two-panel layout
+instead — one panel for definitions, one for theorems, each in its pipeline's own
+richer vocabulary — and writes `burnup-split.svg`, never overwriting the default
+chart. `--strict` exits non-zero if any sample violates `tracked >= completed` or
+`tracked >= in-progress`; the warning is stamped into the SVG either way.
 
 `--png` also writes a PNG (via rsvg-convert, inkscape, or imagemagick);
 `--png-scale` sets the raster scale (default 2.0).
 
-**Scope caveat (leanblueprint combined).** It measures blueprint completion, not
-repo-wide sorry debt. `in-progress` counts only formalized blueprint nodes whose
-bindings hold a sorry; a sorry in a declaration the blueprint does not track is
-invisible, so `in-progress = 0` means every formalized node is sorry-free, not
-that the repo has none. Surfacing untracked sorry debt is
+**Scope caveat (leanblueprint).** It measures blueprint completion, not repo-wide
+sorry debt. `in-progress` counts only formalized blueprint nodes whose bindings
+hold a sorry; a sorry in a declaration the blueprint does not track is invisible,
+so `in-progress = 0` means every formalized node is sorry-free, not that the repo
+has none. Surfacing untracked sorry debt is
 [#34](https://github.com/Beneficial-AI-Foundation/veritooling/issues/34). The
-lean combined chart has no such blind spot: it counts every declaration, so its
+lean chart has no such blind spot: it counts every declaration, so its
 `in-progress` is the project's full sorry count.
 
 ## Dependency graph & cross-project dashboard
@@ -192,40 +206,49 @@ not reported as zero.
 
 ## How to read the charts
 
-All charts share one vocabulary from the VeriLib "Atom statuses and colours" (FC)
-model: **tracked** (the ceiling), **verified+trusted**, **verified**,
-**in-progress**, **unspecified**, **failed**. What differs is the unit being
-counted, stated on each chart's y-axis and subtitle. Read a chart as nested
-frontiers, each larger band containing the smaller ones, plus zero-based status
-counts drawn only when they occur.
+Every chart draws the same three categories, from the VeriLib
+[Verification progress metrics](https://beneficial-ai-foundation.github.io/VeriLib-Docs/components/processor/verification-progress/)
+page. What differs is only the unit being counted, stated on each chart's y-axis
+and subtitle.
 
-**Colour** (Verus/Aeneas, unit: a Rust `exec` atom).
-- **tracked**: atoms in scope (`exec_total` minus grey/disabled).
-- **verified+trusted**: proved (green) plus axiom/trusted (purple). The
-  completion frontier.
-- **verified**: proved with no trust reliance (green).
-- **in-progress** (yellow), **unspecified** (white), **failed** (red), and the
-  Aeneas-only **translated** draw when present.
-- The gap between `tracked` and `verified+trusted` is white plus yellow plus red.
+| Category | Definition | Colour |
+|----------|------------|--------|
+| **tracked** | in verification scope — the ceiling | grey |
+| **in-progress** | `unverified`: a spec exists, the proof is incomplete (a `sorry` or `assume`) | amber |
+| **completed** | `verified` + `transitively-verified` + `trusted` | green |
 
-**Blueprint two-panel** (leanblueprint, unit: a blueprint node; Definitions and
-Theorems panels).
-- **total**: every node of that kind. **formalized**: the Lean statement exists.
-  **proved** (theorems only): sorry-free and probe-lean-confirmed.
+Two properties matter, because they differ from a stacked percentage chart.
+`tracked` is the ceiling, so `tracked >= completed` and `tracked >= in-progress`;
+a violation is stamped onto the image rather than clamped. And `in-progress` and
+`completed` are disjoint but do **not** sum to `tracked` — the remaining gap holds
+the units that are neither, `unspecified` and `failed`, which is why the gap must
+not be read as the sorry count. The flags above split that gap open.
 
-**Lean two-panel** (lean, unit: a Lean declaration; no fixed ceiling).
-- **total**: every declaration of that kind. **without sorry**:
-  `verified + transitively-verified + trusted`. **trust boundary**:
-  `transitively-verified + trusted`. **failed**: an elaboration error, drawn when
-  present. The gap between `without sorry` and `trust boundary` is locally clean
-  but transitively contaminated.
+Per pipeline, only the unit and the ceiling's provenance change:
 
-**Combined** (`--combined`, unit: a blueprint node or a Lean declaration, pooled).
-Same FC bands as the colour burn-up. For leanblueprint the statement axis comes
-from the blueprint and the proof status from probe-lean's per-atom
-`verification-status`, rolled up per node by worst status; for lean both axes come
-from probe-lean, so it sees every declaration. Curves draw only when present, so
-a clean history stays uncluttered.
+| Pipeline | Unit | `tracked` is | `completed` is |
+|----------|------|--------------|----------------|
+| Verus / Aeneas | a Rust `exec` atom | `exec_total` minus grey/disabled — a curated ceiling | light + dark green + purple |
+| `lean` | a Lean declaration | every declaration, so it grows with the project; labelled **total**, since probe-lean gives no curated tracked set | `verified + transitively-verified + trusted` |
+| `leanblueprint` | a blueprint node | every node — a per-sample inventory, so it can **fall** as well as rise | probe-lean's rollup over each node's bound atoms, not a hand-toggled `\leanok` |
+
+Neither Lean ceiling is fixed, so those charts are not strictly monotonic
+burn-ups. On the blueprint side `unspecified` has a concrete meaning: nodes with
+no formalized statement yet.
+
+**The `--split` layout** (leanblueprint or lean) is the exception: it keeps each
+pipeline's own richer vocabulary, which is why it exists.
+
+- **Blueprint** (Definitions and Theorems panels): **total**, every node of that
+  kind; **formalized**, the Lean statement exists; **proved** (theorems only),
+  sorry-free and probe-lean-confirmed. Pooling these would collapse the `proved`
+  axis, so a rising line could no longer be read as *more statements written* vs
+  *more proofs closed*.
+- **Lean**: **total**, every declaration of that kind; **without sorry**, which is
+  the default chart's `completed`; **trust boundary**,
+  `transitively-verified + trusted` — a different cut from `--trusted`, since the
+  gap up to `without sorry` is the locally-clean-but-transitively-contaminated set.
+  `failed` draws itself here when present.
 
 ## Scheduling weekly updates (cron)
 
@@ -255,17 +278,21 @@ replaces a row rather than duplicating it; the CSV mirrors it. Shared columns:
 `repo, pipeline, sample_date, commit, commit_date, tool, tool_version, status,
 reason, commit_validated, duration_sec`.
 
-Each pipeline then fills one metric group and leaves the others blank:
+Each pipeline then fills one metric group and leaves the others blank. The stored
+columns are the raw statuses, not the three chart categories: `completed` and
+`in-progress` are derived at plot time (from `verified_trusted` and `yellow` on the
+colour side), so a history recorded before this vocabulary existed still plots.
 
 - **Colour** (Verus/Aeneas): `grey, white, red, yellow, light_green, dark_green,
   purple, exec_total, dot_red, dot_yellow, dot_green, art_total, tracked,
   verified, verified_trusted, translated`.
 - **leanblueprint**: `bp_nodes_total, bp_nodes_bound, bp_nodes_planned,
   bp_nodes_decl_missing, bp_def_total, bp_def_formalized, bp_thm_total,
-  bp_thm_formalized, bp_thm_proved, bp_thm_proved_confirmed`, plus, for
-  `--combined`, a per-kind probe-lean partition over the formalized nodes:
+  bp_thm_formalized, bp_thm_proved, bp_thm_proved_confirmed`, plus a per-kind
+  probe-lean partition over the formalized nodes, which the default chart needs:
   `bp_def_verified, bp_def_trusted, bp_def_in_progress, bp_def_failed,
-  bp_def_unrealized` and the `bp_thm_*` counterparts.
+  bp_def_unrealized` and the `bp_thm_*` counterparts. A history predating those
+  columns is refused rather than plotted as zeros; `--split` still works on it.
 - **lean**: `lean_def_total, lean_def_sorry, lean_def_verified,
   lean_def_trans_verified, lean_def_trusted, lean_def_failed` and the six
   `lean_thm_*` counterparts. `sorry` means the body has a sorry (`unverified`);
@@ -277,7 +304,7 @@ Each pipeline then fills one metric group and leaves the others blank:
 `verify_error`, `timeout`, `commit_mismatch`. Only `ok` samples are charted.
 `verify_error` marks a commit that produced no per-function statuses (a render
 yielding 0 blueprint nodes, or an extract with 0 declarations), a visible gap
-rather than a real "0 verified" point. The two-axis and combined metrics are
+rather than a real "0 verified" point. The two-axis and pooled metrics are
 detailed in `leanblueprint-metrics.md`.
 
 ## How it works

@@ -27,8 +27,10 @@ Standard library only, Python 3.10+. Plotly is pulled from a CDN by the page.
 
 ## Plots (dalek-verus)
 
-- **Burn-up** — verified / verified+trusted climbing toward the tracked ceiling.
-- **Verification frontier** — those two as a share of tracked code (%).
+- **Burn-up** — the three categories, matching the static `burnup.svg`: completed
+  climbing toward the tracked ceiling, with in-progress alongside.
+- **Completion** — completed as a share of tracked code (%), beside the verified
+  share, so the axiom-backed gap between them is visible.
 - **Exec-atom status composition** — stacked area of the atom-status buckets
   over time (unspecified → in-progress → trusted → verified).
 - **Verification artifacts checked** — accepted / unverified / failed specs and

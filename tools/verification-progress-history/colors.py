@@ -6,6 +6,11 @@ engineering docs ("Atom statuses and colours"). Works with probe-aeneas/extract,
 probe-verus/extract, and probe-lean/extract JSON; auto-detects the pipeline from
 the ``schema`` field.
 
+Alongside the per-colour counts it emits the progress summary and the **three
+chart categories** ``plot_progress.py`` draws: ``tracked`` (the ceiling, every
+non-grey bar), ``in_progress`` (yellow) and ``completed`` (light + dark green +
+purple). See "Verification progress metrics" in the VeriLib docs.
+
 Two channels (see the doc for the full definition):
 
   Colour BAR  -- Rust ``exec`` atoms (language "rust", kind "exec").
@@ -65,8 +70,9 @@ def count_colors(envelope: dict) -> dict:
     """Compute the full colour/progress metric set for one extract envelope.
 
     Returns a flat dict with the seven bar colours, the three dot colours, the
-    totals, and the derived progress figures (tracked / verified /
-    verified_trusted / translated), plus any consistency ``warnings``.
+    totals, the three chart categories (tracked / in_progress / completed), the
+    finer progress figures they are built from (verified / verified_trusted /
+    translated), plus any consistency ``warnings``.
     """
     schema = envelope.get("schema", "") or ""
     pipeline = pipeline_from_schema(schema)
@@ -116,9 +122,15 @@ def count_colors(envelope: dict) -> dict:
     art_total = len(arts)
 
     # --- Derived progress figures --------------------------------------------
+    # The three chart categories come first: `tracked` is the ceiling,
+    # `in_progress` is yellow, and `completed` is the green-plus-purple set.
+    # `verified` (green only) and `verified_trusted` stay as the finer cuts the
+    # chart's --trusted split and the summary partition need.
     tracked = exec_total - grey
+    in_progress = yellow
     verified = light_green + dark_green
     verified_trusted = verified + purple
+    completed = verified_trusted
     translated = sum(1 for e in active if e["translated"])
 
     bar_cover = grey + white + red + yellow + light_green + dark_green + purple
@@ -149,6 +161,8 @@ def count_colors(envelope: dict) -> dict:
         "dot_green": dot_green,
         "art_total": art_total,
         "tracked": tracked,
+        "in_progress": in_progress,
+        "completed": completed,
         "verified": verified,
         "verified_trusted": verified_trusted,
         "translated": translated,
@@ -178,15 +192,20 @@ def _format_table(m: dict) -> str:
         "--|-------------|------",
         f"  | Total       | {m['exec_total']}",
         "",
-        "Progress",
+        "Chart categories",
+        f"    tracked     (total - grey):       {m['tracked']}",
+        f"    in-progress (yellow):             {m['in_progress']}",
+        f"    completed   (green + purple):     {m['completed']}",
+        "",
+        "Summary partition (disjoint, sums to tracked)",
         f"    unspecified (white):              {m['white']}",
         f"    failed      (red):                {m['red']}",
         f"    in-progress (yellow):             {m['yellow']}",
         f"    verified    (light + dark green): {m['verified']}",
         f"    trusted     (purple):             {m['purple']}",
-        f"    tracked     (total - grey):       {m['tracked']}",
+        "",
+        "Milestone cutting across the partition",
         f"    translated  (Aeneas only):        {m['translated']}",
-        f"    verified + trusted   (frontier):  {m['verified_trusted']}",
         "",
         "Colour DOT -- verification artifacts (checking status)",
         f"    Red    | {m['dot_red']}",
