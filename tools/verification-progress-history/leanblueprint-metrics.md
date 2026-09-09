@@ -12,10 +12,11 @@ extract`. That extract does three things:
 
 1. **`probe-lean extract`** analyzes every Lean module and emits **atoms**, each
    with a machine `verification-status` (does it elaborate, is it sorry-free).
-2. **Verso blueprint render** (for secure-messaging via
-   `scripts/render-docs-site.sh`) produces per-chapter `blueprint-manifest.json`
-   under `_out/site`. This is the **blueprint graph**: one node per
-   `definition`/`theorem` entry, each carrying a two-axis status.
+2. **Verso blueprint render** (probe-leanblueprint's default `lake exe vbp
+   build`, or a `--verso-render-cmd` for projects `vbp` cannot drive) produces
+   per-chapter `blueprint-manifest.json` under `_out/site`. This is the
+   **blueprint graph**: one node per `definition`/`theorem` entry, each carrying
+   a two-axis status.
 3. **Join** binds blueprint nodes onto probe-lean atoms, emitting a Schema-3.0
    extract envelope where each node has `blueprint-*` fields.
 

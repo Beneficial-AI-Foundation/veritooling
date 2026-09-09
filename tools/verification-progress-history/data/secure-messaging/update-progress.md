@@ -30,13 +30,20 @@ week with no new commit adds nothing:
 ```bash
 python3 progress_history.py <repo> \
   --pipeline leanblueprint --cadence weekly --branch origin/main \
-  --verso-render-cmd scripts/render-docs-site.sh \
   --since 2026-09-09 --resume \
   --work-clone /tmp/vph-secure-messaging \
   --dep-cache-dir /tmp/vph-depcache \
   --sample-timeout 3600
 ```
 
+- No `--verso-render-cmd`: since [#280](https://github.com/Beneficial-AI-Foundation/secure-messaging/pull/280)
+  (`a7d1690`, 2026-09-07) the repo has a root-level `BlueprintMain.lean`, so
+  probe-leanblueprint's default `lake exe vbp build` renders the manifest itself.
+  Verified at `d618450`: flag-free gives the same 147 nodes / 72 bound as the
+  committed sample. **Resampling any commit before `a7d1690` still needs
+  `--verso-render-cmd scripts/render-docs-site.sh`** — `vbp` finds no generator
+  there. That script is unchanged and still builds the full site (landing page,
+  status table, progress chart); it is just no longer what the sampler needs.
 - `--dry-run` first to list the commits it would sample.
 - `--dep-cache-dir` snapshots the compiled dep build per (toolchain, manifest)
   and restores it in seconds on later samples — keep it persistent to make
