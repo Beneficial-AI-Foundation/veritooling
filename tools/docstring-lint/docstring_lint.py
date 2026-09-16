@@ -46,8 +46,10 @@ _MODIFIERS = r"(?:(?:private|protected|noncomputable|nonrec|partial|unsafe|scope
 DECL_RE = re.compile(
     r"^\s*(?:@\[[^\]]*\]\s*)*" + _MODIFIERS + r"(" + "|".join(DECL_KINDS) + r")\b\s*([^\s({\[:]+)?"
 )
-# Lines that may sit between a docstring and its declaration.
-_SKIP_BEFORE_DECL = re.compile(r"^\s*(@\[|--|set_option\b|open\b.*\bin\s*$|attribute\b)")
+# Lines that may sit between a docstring and its declaration and declare nothing themselves.
+# Checked only after the declaration patterns, so `@[simp] theorem t …` is not skipped as an
+# attribute line.
+_SKIP_BEFORE_DECL = re.compile(r"^\s*(@\[|set_option\b|open\b.*\bin\s*$|attribute\b)")
 _FIELD_RE = re.compile(r"^\s+([A-Za-z_][\w'!?]*)\s*:(?!=)")
 _CTOR_RE = re.compile(r"^\s*\|\s*([A-Za-z_][\w'!?]*)")
 _SECTION_RE = re.compile(r"^\s*section\b\s*([\w.'’]*)")
@@ -78,6 +80,8 @@ LEAN_WORDS = frozenset(
     true false none some id Id IO ℕ ℤ ℝ ℚ
     theorem lemma def abbrev structure class inductive instance axiom opaque example
     namespace section variable open import private protected noncomputable
+    macro macro_rules syntax notation elab deriving mutual attribute set_option
+    where end at in partial unsafe nonrec local scoped
     """.split()
 )
 
@@ -184,12 +188,16 @@ def _block_end(source: str, start: int) -> int:
         pos = m.end()
 
 
-def code_only(source: str) -> str:
+def code_only(source: str, *, keep_strings: bool = False) -> str:
     """The source with every comment, docstring and string blanked out, newlines and offsets
-    preserved: what is left is code, so words found in it are identifiers in scope."""
+    preserved: what is left is code, so words found in it are identifiers in scope.
+    `keep_strings` keeps string literals, whose text is the name of a `syntax`, `elab`,
+    `macro` or `notation` declaration."""
     pieces: list[str] = []
     pos = 0
     for sp in scan_spans(source):
+        if keep_strings and sp.kind == "string":
+            continue
         pieces.append(source[pos : sp.start])
         pieces.append(re.sub(r"[^\n]", " ", source[sp.start : sp.end]))
         pos = sp.end
@@ -214,7 +222,7 @@ def _line_of(starts: list[int], offset: int) -> int:
 
 def parse_blocks(path: str, source: str) -> list[Block]:
     """All docstring blocks of one file, each attached to the declaration that follows it."""
-    lines = source.split("\n")
+    code_lines = code_only(source, keep_strings=True).split("\n")
     starts = _line_starts(source)
     blocks: list[Block] = []
     for sp in scan_spans(source):
@@ -228,38 +236,43 @@ def parse_blocks(path: str, source: str) -> list[Block]:
         kind = "decl" if sp.kind == "doc" else "module"
         block = Block(path, start_line, end_line, kind, raw.strip(), body_line=body_line)
         if kind == "decl":
-            _attach_decl(block, lines, end_line, sp.end - starts[end_line - 1])
+            _attach_decl(block, code_lines, end_line, sp.end - starts[end_line - 1])
         blocks.append(block)
     return blocks
 
 
-def _attach_decl(block: Block, lines: list[str], end_line: int, end_col: int) -> None:
+def _attach_decl(block: Block, code_lines: list[str], end_line: int, end_col: int) -> None:
     """Attach the first declaration after the block: the rest of the closing line if it holds
-    one (`/-- doc -/ theorem t …`), else the first of the following lines that is not blank, an
-    attribute, a line comment (anchors) or a `set_option`."""
-    candidates = [(end_line, lines[end_line - 1][end_col:])]
-    for k in range(end_line, min(end_line + 8, len(lines))):
-        candidates.append((k + 1, lines[k]))
+    one (`/-- doc -/ theorem t …`), else the first of the following lines that declares
+    something. The lines are the file with comments, docstrings and strings blanked, so anchor
+    comments and ordinary `/- … -/` blocks between a docstring and its declaration read as
+    blank and are skipped; so are attribute-only lines, `set_option` and `open … in`. The
+    declaration patterns are tried before those skips, so `@[simp] theorem t …` still attaches.
+    """
+    candidates = [(end_line, code_lines[end_line - 1][end_col:])]
+    for k in range(end_line, min(end_line + 8, len(code_lines))):
+        candidates.append((k + 1, code_lines[k]))
     for lineno, line in candidates:
-        if not line.strip() or _SKIP_BEFORE_DECL.match(line):
+        if not line.strip():
             continue
         m = DECL_RE.match(line)
         if m:
+            name = m.group(2)
             block.decl_kind = m.group(1)
-            block.decl_name = m.group(2)
+            # `syntax "foo" : tactic`, `elab "foo" : command`: the name is a string literal.
+            block.decl_name = name.strip('"') or None if name else None
             block.decl_line = lineno
             return
         m = _FIELD_RE.match(line)
         if m:
-            block.decl_kind = "field"
-            block.decl_name = m.group(1)
-            block.decl_line = lineno
+            block.decl_kind, block.decl_name, block.decl_line = "field", m.group(1), lineno
             return
         m = _CTOR_RE.match(line)
         if m:
-            block.decl_kind = "ctor"
-            block.decl_name = m.group(1)
-            block.decl_line = lineno
+            block.decl_kind, block.decl_name, block.decl_line = "ctor", m.group(1), lineno
+            return
+        if _SKIP_BEFORE_DECL.match(line):
+            continue
         return
 
 
@@ -574,8 +587,11 @@ def added_ranges(diff_text: str) -> list[tuple[int, int]]:
 
 
 def git_added_ranges(root: Path, base: str, rel: str) -> list[tuple[int, int]]:
+    """`--no-renames`, so a file renamed since the ref reads as an addition of all its lines
+    rather than as rename metadata with no hunks: a renamed file contributes all of its
+    blocks, and one renamed and then edited contributes the untouched docstrings too."""
     out = subprocess.run(
-        ["git", "-C", str(root), "diff", "-U0", base, "--", rel],
+        ["git", "-C", str(root), "diff", "-U0", "--no-renames", base, "--", rel],
         capture_output=True,
         text=True,
         check=True,

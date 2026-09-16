@@ -24,12 +24,16 @@ python3 docstring_lint.py --base origin/main --strict
 ```
 
 Exactly one of `--base`, `--files`, `--all` is required. `--base` takes any git ref and keeps a
-block when one of its lines is in the diff's added ranges, so a new or renamed file contributes
-all of its blocks and an edited file only the docstrings the change touched.
+block when one of its lines is in the diff's added ranges. The per-file diff runs with
+`--no-renames`, so a new or renamed file reads as an addition of all its lines and contributes
+all of its blocks, while an edited file contributes only the docstrings the change touched.
 
 Blocks are found by a scanner that tracks ordinary `/- -/` comments, `--` line comments and
 string literals, so a `/--` inside any of those is not a docstring, and a docstring closed on
-the same line as its declaration (`/-- doc -/ theorem t …`) is attached to it.
+the same line as its declaration (`/-- doc -/ theorem t …`) is attached to it. Declarations are
+read from the same source with comments, docstrings and strings blanked, so an anchor or a note
+comment between a docstring and its declaration is skipped, and a declaration sharing a line
+with its attributes (`@[simp] theorem t …`) still attaches.
 
 ## Checks
 

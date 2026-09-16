@@ -74,6 +74,18 @@ def test_attach_skips_anchor_comments_and_attributes():
     assert bs[2].decl_line == 16  # past `@[simp]`
 
 
+def test_attach_skips_an_ordinary_comment_before_the_declaration():
+    text = "/-- Doc. -/\n/- a note\nspanning two lines -/\ntheorem t : True := trivial\n"
+    (b,) = _blocks(text)
+    assert (b.decl_kind, b.decl_name, b.decl_line) == ("theorem", "t", 4)
+
+
+def test_attach_reads_a_declaration_on_its_attribute_line():
+    text = "/-- Doc. -/\n@[simp] theorem t : True := trivial\n"
+    (b,) = _blocks(text)
+    assert (b.decl_kind, b.decl_name, b.decl_line) == ("theorem", "t", 2)
+
+
 def test_body_strips_markers():
     assert _blocks()[2].text == "Baz thing."
 
@@ -220,6 +232,11 @@ def test_unresolved_ref_one_character_tokens_are_checked():
     text = "/-- Uses `z` and `n`. -/\ntheorem t (n : Nat) : True := trivial\n"
     msgs = [f.message for f in _lint(text, index=set())["t"].findings if f.code == "unresolved-ref"]
     assert msgs == ["`z` names no declaration found"]
+
+
+def test_unresolved_ref_skips_lean_commands_and_keywords():
+    text = "/-- A `macro`, its `syntax`, the `where` block and `set_option`. -/\ndef t := 1\n"
+    assert "unresolved-ref" not in _codes(_lint(text, index=set())["t"])
 
 
 def test_unresolved_ref_accepts_words_from_the_files_code():
@@ -385,7 +402,31 @@ def test_pure_rename_contributes_all_blocks(tmp_path):
     git("commit", "-q", "-m", "rename")
     files = dl.git_changed_files(tmp_path, "HEAD~1")
     blocks = dl.lint(tmp_path, files, base="HEAD~1", max_line=100, name_index=None)
-    assert [b.decl_name for b in blocks] == ["old"]  # git shows the new path as all-added
+    assert [b.decl_name for b in blocks] == ["old"]  # `--no-renames`: the new path is all-added
+
+
+def test_renamed_and_edited_file_contributes_untouched_blocks(tmp_path):
+    def git(*a):
+        subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    (tmp_path / "A.lean").write_text(
+        "/-- Old. -/\ntheorem old : True := trivial\n", encoding="utf-8"
+    )
+    git("add", "A.lean")
+    git("commit", "-q", "-m", "base")
+    git("mv", "A.lean", "B.lean")
+    (tmp_path / "B.lean").write_text(
+        "/-- Old. -/\ntheorem old : True := trivial\n/-- New. -/\ntheorem new : True := trivial\n",
+        encoding="utf-8",
+    )
+    git("add", "-A")
+    git("commit", "-q", "-m", "rename and extend")
+    files = dl.git_changed_files(tmp_path, "HEAD~1")
+    blocks = dl.lint(tmp_path, files, base="HEAD~1", max_line=100, name_index=None)
+    assert [b.decl_name for b in blocks] == ["old", "new"]
 
 
 def test_base_scope_end_to_end(tmp_path):
