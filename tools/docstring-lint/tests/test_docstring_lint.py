@@ -163,6 +163,13 @@ def test_long_line_counts_characters_not_bytes():
     assert [f.severity for f in out["t"].findings if f.code == "long-line"] == ["error"]
 
 
+def test_long_line_measures_the_docstring_not_the_declaration_after_it():
+    text = "/-- Short. -/ theorem t (n : Nat) : " + " ∧ ".join(["n = n"] * 20) + " := by simp\n"
+    assert len(text.split("\n")[0]) > 100
+    out = _lint(text, index=set())
+    assert "long-line" not in _codes(out["t"])
+
+
 def test_paren_and_connective_and_proof_flags():
     out = _lint(index=set())
     qux = out["qux"]
@@ -192,6 +199,10 @@ def test_name_restated():
     assert "name-restated" in _codes(_lint(text, index=set())["fooBarBaz"])
     text = "/-- Foo bar baz. -/\ntheorem foo_bar_baz : True := trivial\n"
     assert "name-restated" in _codes(_lint(text, index=set())["foo_bar_baz"])
+    text = "/-- `fooBarBaz` -/\ntheorem fooBarBaz : True := trivial\n"  # the name, quoted
+    assert "name-restated" in _codes(_lint(text, index=set())["fooBarBaz"])
+    text = "/-- Bounds `fooBarBaz` from below. -/\ntheorem fooBarBaz : True := trivial\n"
+    assert "name-restated" not in _codes(_lint(text, index=set())["fooBarBaz"])
 
 
 def test_restates_decl():
@@ -302,6 +313,24 @@ def test_collect_names_fields_and_constructors():
     )
     dl._collect_names(src, names)
     assert {"fld", "S.fld", "N.S.fld", "other", "mk", "T.mk", "cons", "T.cons"} <= names
+
+
+def test_universe_parameters_are_not_part_of_the_name():
+    text = "/-- Doc. -/\nabbrev GrpMax.{u1, u2} := GrpCat.{max u1 u2}\n"
+    (b,) = _blocks(text)
+    assert b.decl_name == "GrpMax"
+    names = set()
+    dl._collect_names("namespace N\nstructure S.{u} where\n  fld : Nat\nend N\n", names)
+    assert {"S", "N.S", "S.fld", "N.S.fld"} <= names
+
+
+def test_scoped_notation_with_a_namespace_attaches_and_is_indexed():
+    text = '/-- Doc. -/\nscoped[omegaLimit] notation "ω" => omegaLimit\n'
+    (b,) = _blocks(text)
+    assert (b.decl_kind, b.decl_name) == ("notation", "ω")
+    names = set()
+    dl._collect_names('scoped[PFunctor] infixl:70 " ⊗ " => tensor\n', names)
+    assert "⊗" in names
 
 
 def test_collect_names_mutual_end_does_not_pop_a_namespace():
@@ -518,6 +547,15 @@ def test_render_formats():
     payload = json.loads(dl.render_json(blocks, dl.Path("/r"), {"all": True}))
     assert payload["schema"] == dl.SCHEMA
     assert {b["decl_name"] for b in payload["blocks"]} >= {"bar", "qux"}
+
+
+def test_main_reports_an_unreadable_requested_file(tmp_path, capsys):
+    (tmp_path / "A.lean").write_text("/-- Doc. -/\ntheorem t : True := trivial\n", encoding="utf-8")
+    rc = dl.main(["--root", str(tmp_path), "--files", "A.lean", "Typo.lean", "--no-resolve"])
+    assert rc == 2
+    assert "Typo.lean" in capsys.readouterr().err
+    rc = dl.main(["--root", str(tmp_path), "--files", "A.lean", "--no-resolve"])
+    assert rc == 0
 
 
 def test_main_strict_exit(tmp_path):

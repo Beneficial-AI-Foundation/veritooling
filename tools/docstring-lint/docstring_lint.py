@@ -41,8 +41,17 @@ DECL_KINDS = (
     "syntax",
     "notation",
     "elab",
+    "infixl",
+    "infixr",
+    "infix",
+    "prefix",
+    "postfix",
 )
-_MODIFIERS = r"(?:(?:private|protected|noncomputable|nonrec|partial|unsafe|scoped|local)\s+)*"
+# `scoped` may carry the namespace it scopes to: `scoped[omegaLimit] notation "ω" => …`.
+_MODIFIERS = (
+    r"(?:(?:private|protected|noncomputable|nonrec|partial|unsafe|local"
+    r"|scoped(?:\[[\w.'’]+\])?)\s+)*"
+)
 DECL_RE = re.compile(
     r"^\s*(?:@\[[^\]]*\]\s*)*" + _MODIFIERS + r"(" + "|".join(DECL_KINDS) + r")\b\s*([^\s({\[:]+)?"
 )
@@ -50,8 +59,18 @@ DECL_RE = re.compile(
 # Checked only after the declaration patterns, so `@[simp] theorem t …` is not skipped as an
 # attribute line.
 _SKIP_BEFORE_DECL = re.compile(r"^\s*(@\[|set_option\b|open\b.*\bin\s*$|attribute\b)")
-# `syntax`, `macro`, `notation` and `elab` declarations are named by a string literal.
-_LITERAL_NAME_KINDS = ("syntax", "macro", "notation", "elab")
+# Declarations named by a string literal rather than by an identifier.
+_LITERAL_NAME_KINDS = (
+    "syntax",
+    "macro",
+    "notation",
+    "elab",
+    "infixl",
+    "infixr",
+    "infix",
+    "prefix",
+    "postfix",
+)
 _LITERAL_NAME_RE = re.compile(r'"([^"\n]+)"')
 _NAME_START_RE = re.compile(r"[A-Za-z_«Ͱ-Ͽ]")
 _FIELD_RE = re.compile(r"^\s+([A-Za-z_][\w'!?]*)\s*:(?!=)")
@@ -86,6 +105,7 @@ LEAN_WORDS = frozenset(
     theorem lemma def abbrev structure class inductive instance axiom opaque example
     namespace section variable open import private protected noncomputable
     macro macro_rules syntax notation elab deriving mutual attribute set_option
+    infix infixl infixr prefix postfix
     where end at in partial unsafe nonrec local scoped
     """.split()
 )
@@ -109,6 +129,7 @@ class Block:
     kind: str  # "decl" (/--) or "module" (/-!)
     text: str  # docstring body without the comment markers
     body_line: int = 0  # line where `text` begins, for finding locations
+    end_col: int = 0  # column after the closing `-/`, so line length excludes what follows
     decl_kind: str | None = None
     decl_name: str | None = None
     decl_line: int | None = None
@@ -239,9 +260,12 @@ def parse_blocks(path: str, source: str) -> list[Block]:
         lead = len(raw) - len(raw.lstrip())
         body_line = start_line + raw[:lead].count("\n")
         kind = "decl" if sp.kind == "doc" else "module"
-        block = Block(path, start_line, end_line, kind, raw.strip(), body_line=body_line)
+        end_col = sp.end - starts[end_line - 1]
+        block = Block(
+            path, start_line, end_line, kind, raw.strip(), body_line=body_line, end_col=end_col
+        )
         if kind == "decl":
-            _attach_decl(block, code_lines, end_line, sp.end - starts[end_line - 1])
+            _attach_decl(block, code_lines, end_line, end_col)
         blocks.append(block)
     return blocks
 
@@ -280,16 +304,17 @@ def _attach_decl(block: Block, code_lines: list[str], end_line: int, end_col: in
 
 
 def decl_name(kind: str, captured: str | None, line: str) -> str | None:
-    """The name a declaration line declares: the string literal of a `syntax`, `macro`,
-    `notation` or `elab` declaration (`syntax "vcvSupport" : tactic` declares `vcvSupport`),
-    else the identifier after the keyword. Anything else the keyword may be followed by
-    (`=>`, `|`, a term) is not a name."""
+    """The name a declaration line declares: the string literal of a `syntax`, `notation`,
+    `infixl`, … declaration (`syntax "vcvSupport" : tactic` declares `vcvSupport`), else the
+    identifier after the keyword, without its universe parameters (`abbrev GrpMax.{u₁, u₂}`
+    declares `GrpMax`; the name pattern stops at the brace and leaves the dot). Anything else
+    the keyword may be followed by (`=>`, `|`, a term) is not a name."""
     if kind in _LITERAL_NAME_KINDS:
         m = _LITERAL_NAME_RE.search(line)
         if m:
             return m.group(1).strip() or None
     if captured and _NAME_START_RE.match(captured):
-        return captured
+        return captured.rstrip(".") or None
     return None
 
 
@@ -408,7 +433,7 @@ def _collect_names(text: str, names: set[str]) -> None:
             if ns:
                 names.add(".".join(ns) + "." + name)
             sm = _STRUCT_RE.match(line)
-            owner = sm.group(1) if sm else None
+            owner = sm.group(1).rstrip(".") if sm else None  # `structure S.{u} where`
             continue
         if owner is not None:
             m = _FIELD_RE.match(line) or _CTOR_RE.match(line)
@@ -459,14 +484,17 @@ def check_block(
     name_index: set[str] | None,
     file_words: set[str],
 ) -> None:
+    # The closing line is measured up to `-/` only: a declaration that follows it
+    # (`/-- doc -/ theorem t …`) is not the docstring's line length.
     raw_lines = lines[block.start - 1 : block.end]
     for off, line in enumerate(raw_lines):
-        if len(line) > max_line:
+        width = block.end_col if block.start + off == block.end else len(line)
+        if width > max_line:
             block.add(
                 "long-line",
                 "error",
                 block.start + off,
-                f"{len(line)} characters, limit {max_line}",
+                f"{width} characters, limit {max_line}",
             )
 
     prose = _prose(block.text)
@@ -476,7 +504,8 @@ def check_block(
     if block.decl_kind in ("theorem", "lemma", "def", "abbrev") and n_words <= 3:
         block.add("trivial", "warn", block.start, "three words or fewer")
 
-    if block.decl_name and _restates_name(prose, block.decl_name):
+    # On the whole text, not the prose: `` /-- `fooBarBaz` -/ `` restates the name too.
+    if block.decl_name and _restates_name(block.text, block.decl_name):
         block.add("name-restated", "warn", block.start, "the docstring is the name, spelled out")
 
     if _PROOF_RE.search(block.text):
@@ -520,10 +549,16 @@ def _short(s: str, n: int = 60) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
-def _restates_name(prose: str, name: str) -> bool:
-    short = name.rsplit(".", 1)[-1]
-    parts = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", short).replace("_", " ").lower().split()
-    got = [w.lower() for w in _WORD_RE.findall(prose)]
+def _name_words(s: str) -> list[str]:
+    """`fooBarBaz` and `foo_bar_baz` alike as `["foo", "bar", "baz"]`."""
+    return re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", s).replace("_", " ").lower().split()
+
+
+def _restates_name(text: str, name: str) -> bool:
+    """The docstring says the declaration's name and nothing else, whether spelled out
+    (`Foo bar baz.`) or quoted (`` `fooBarBaz` ``)."""
+    parts = _name_words(name.rsplit(".", 1)[-1])
+    got = [w for word in _WORD_RE.findall(text) for w in _name_words(word)]
     return len(parts) >= 2 and got == parts
 
 
@@ -626,6 +661,18 @@ def git_touched_ranges(root: Path, base: str, rel: str) -> list[tuple[int, int]]
 
 def in_ranges(block: Block, ranges: list[tuple[int, int]]) -> bool:
     return any(not (block.end < a or block.start > b) for a, b in ranges)
+
+
+def read_error(path: Path) -> str | None:
+    """Why `path` cannot be linted, or None. Discovered files are skipped on error; a file
+    named on the command line is a caller's mistake, so `main` reports it instead."""
+    try:
+        path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return "not UTF-8"
+    except OSError as e:
+        return e.strerror or str(e)
+    return None
 
 
 def project_files(root: Path, excludes: list[str]) -> list[str]:
@@ -737,6 +784,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.files:
         files = args.files
         scope_desc = {"files": files}
+        # A file asked for by name and then skipped would let a typo in a CI list pass silently.
+        unreadable = [f"{f}: {err}" for f in files if (err := read_error(root / f))]
+        if unreadable:
+            print("error: cannot read " + "; ".join(unreadable), file=sys.stderr)
+            return 2
     elif args.base:
         files = git_changed_files(root, args.base)
         scope_desc = {"base": args.base}

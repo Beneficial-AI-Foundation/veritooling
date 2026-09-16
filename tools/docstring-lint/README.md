@@ -41,7 +41,7 @@ with its attributes (`@[simp] theorem t …`) still attaches.
 
 | code | severity | what it flags |
 |---|---|---|
-| `long-line` | error | a docstring line over the limit, counted in characters (`--max-line`, default 100) |
+| `long-line` | error | a docstring line over the limit, counted in characters, the closing line only up to `-/` (`--max-line`, default 100) |
 | `unresolved-ref` | warn | a backticked identifier that names nothing: not a declaration in the project, its Lake packages or the Lean core sources, not a module of any of those, not a binder of the declaration, and not a word in the project's code (comments, docstrings and strings excluded) |
 | `trivial` | warn | three words or fewer, backticked names counted, on a `theorem`, `lemma`, `def` or `abbrev`; fields, constructors, structures and instances are exempt |
 | `name-restated` | warn | the docstring is the declaration name spelled out |
@@ -52,12 +52,13 @@ with its attributes (`@[simp] theorem t …`) still attaches.
 | `connective` | info | occurrences of so / hence / therefore / thus, each of which must be a real implication |
 
 Severity `error` is for facts, `warn` for strong heuristics, `info` for things the rubric pass
-should look at but that are often fine. `--strict` exits 1 only on errors.
+should look at but that are often fine. `--strict` exits 1 only on errors; a file named in
+`--files` that cannot be read exits 2, while a file found by `--all` or `--base` is skipped.
 
 `unresolved-ref` is what a rename leaves behind. Names are resolved against a regex scan of
 every declaration (`theorem`, `def`, `structure`, …, short and namespace-qualified, with
 structure fields and inductive constructors as `field` and `Struct.field`, and the string
-literal that names a `syntax`, `macro`, `notation` or `elab`) in the project, `.lake/packages`, and `~/.elan/toolchains/<pinned>/src/lean` when `lean-toolchain`
+literal that names a `syntax`, `macro`, `notation`, `infixl`, … declaration) in the project, `.lake/packages`, and `~/.elan/toolchains/<pinned>/src/lean` when `lean-toolchain`
 pins an installed toolchain. A probe-lean extract (`--probe extract.json`) adds its exact
 declaration list. Tokens containing superscripts or subscripts are treated as notation and
 skipped, as are Lean keywords and common tactics. `--no-resolve` skips the check;
