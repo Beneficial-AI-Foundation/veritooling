@@ -80,6 +80,12 @@ def test_attach_skips_an_ordinary_comment_before_the_declaration():
     assert (b.decl_kind, b.decl_name, b.decl_line) == ("theorem", "t", 4)
 
 
+def test_attach_crosses_a_comment_longer_than_a_few_lines():
+    text = "/-- Doc. -/\n/- note\n" + "more\n" * 20 + "-/\ntheorem t : True := trivial\n"
+    (b,) = _blocks(text)
+    assert (b.decl_kind, b.decl_name) == ("theorem", "t")
+
+
 def test_attach_reads_a_declaration_on_its_attribute_line():
     text = "/-- Doc. -/\n@[simp] theorem t : True := trivial\n"
     (b,) = _blocks(text)
@@ -298,6 +304,26 @@ def test_collect_names_fields_and_constructors():
     assert {"fld", "S.fld", "N.S.fld", "other", "mk", "T.mk", "cons", "T.cons"} <= names
 
 
+def test_collect_names_mutual_end_does_not_pop_a_namespace():
+    names = set()
+    src = "namespace Foo\nmutual\ndef t : Nat := 1\nend\ndef u : Nat := 2\nend Foo\n"
+    dl._collect_names(src, names)
+    assert {"Foo.t", "Foo.u"} <= names
+
+
+def test_collect_names_indexes_string_literal_declaration_names():
+    names = set()
+    src = 'syntax "vcvSupport" : tactic\nelab "regPrelude" : command => pure ()\n'
+    dl._collect_names(src, names)
+    assert {"vcvSupport", "regPrelude"} <= names
+
+
+def test_notation_name_is_the_literal_not_the_arrow():
+    text = '/-- Doc. -/\nnotation "⟦" x "⟧" => f x\n'
+    (b,) = _blocks(text)
+    assert (b.decl_kind, b.decl_name) == ("notation", "⟦")
+
+
 def test_constructor_docstring_is_attached():
     text = (
         "inductive T where\n  /-- Nothing. -/\n  | none\n  /-- Something. -/\n  | some (n : Nat)\n"
@@ -317,9 +343,10 @@ def test_probe_names(tmp_path):
 # --------------------------------------------------------------------------- scope
 
 
-def test_added_ranges_from_zero_context_diff():
+def test_touched_ranges_from_zero_context_diff():
     diff = "@@ -3,0 +4,2 @@\n+a\n+b\n@@ -10 +13 @@\n-x\n+y\n@@ -20,2 +23,0 @@\n-p\n-q\n"
-    assert dl.added_ranges(diff) == [(4, 5), (13, 13)]
+    # the last hunk deletes two lines and adds none: the gap they sat in is (23, 24)
+    assert dl.touched_ranges(diff) == [(4, 5), (13, 13), (23, 24)]
 
 
 def test_in_ranges():
@@ -450,7 +477,35 @@ def test_base_scope_end_to_end(tmp_path):
     assert "paren" in _codes(blocks[0])
 
 
+def test_base_scope_includes_a_block_only_shortened(tmp_path):
+    def git(*a):
+        subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    f = tmp_path / "A.lean"
+    f.write_text(
+        "/--\nKept line (with a paren).\nDropped line.\n-/\ntheorem t : True := trivial\n",
+        encoding="utf-8",
+    )
+    git("add", "A.lean")
+    git("commit", "-q", "-m", "base")
+    f.write_text(
+        "/--\nKept line (with a paren).\n-/\ntheorem t : True := trivial\n", encoding="utf-8"
+    )
+    blocks = dl.lint(tmp_path, ["A.lean"], base="HEAD", max_line=100, name_index=None)
+    assert [b.decl_name for b in blocks] == ["t"]  # deletion-only hunk still selects the block
+
+
 # --------------------------------------------------------------------------- output
+
+
+def test_render_github_escapes_workflow_command_data():
+    b = dl.Block("dir,A:B.lean", 1, 1, "decl", "")
+    b.add("paren", "info", 1, "100% of it\nand a second line")
+    gh = dl.render_github([b])
+    assert gh == ("::warning file=dir%2CA%3AB.lean,line=1::paren: 100%25 of it%0Aand a second line")
 
 
 def test_render_formats():

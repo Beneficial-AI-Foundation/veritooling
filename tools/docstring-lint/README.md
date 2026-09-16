@@ -24,7 +24,9 @@ python3 docstring_lint.py --base origin/main --strict
 ```
 
 Exactly one of `--base`, `--files`, `--all` is required. `--base` takes any git ref and keeps a
-block when one of its lines is in the diff's added ranges. The per-file diff runs with
+block when one of its lines is in the diff's touched ranges: the lines a hunk adds, or, for a
+hunk that only deletes, the pair of lines the removed ones sat between, so shortening a
+docstring selects it too. The per-file diff runs with
 `--no-renames`, so a new or renamed file reads as an addition of all its lines and contributes
 all of its blocks, while an edited file contributes only the docstrings the change touched.
 
@@ -54,7 +56,8 @@ should look at but that are often fine. `--strict` exits 1 only on errors.
 
 `unresolved-ref` is what a rename leaves behind. Names are resolved against a regex scan of
 every declaration (`theorem`, `def`, `structure`, …, short and namespace-qualified, with
-structure fields and inductive constructors as `field` and `Struct.field`) in the project, `.lake/packages`, and `~/.elan/toolchains/<pinned>/src/lean` when `lean-toolchain`
+structure fields and inductive constructors as `field` and `Struct.field`, and the string
+literal that names a `syntax`, `macro`, `notation` or `elab`) in the project, `.lake/packages`, and `~/.elan/toolchains/<pinned>/src/lean` when `lean-toolchain`
 pins an installed toolchain. A probe-lean extract (`--probe extract.json`) adds its exact
 declaration list. Tokens containing superscripts or subscripts are treated as notation and
 skipped, as are Lean keywords and common tactics. `--no-resolve` skips the check;

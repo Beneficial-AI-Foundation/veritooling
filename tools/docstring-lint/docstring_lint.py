@@ -50,6 +50,10 @@ DECL_RE = re.compile(
 # Checked only after the declaration patterns, so `@[simp] theorem t …` is not skipped as an
 # attribute line.
 _SKIP_BEFORE_DECL = re.compile(r"^\s*(@\[|set_option\b|open\b.*\bin\s*$|attribute\b)")
+# `syntax`, `macro`, `notation` and `elab` declarations are named by a string literal.
+_LITERAL_NAME_KINDS = ("syntax", "macro", "notation", "elab")
+_LITERAL_NAME_RE = re.compile(r'"([^"\n]+)"')
+_NAME_START_RE = re.compile(r"[A-Za-z_«Ͱ-Ͽ]")
 _FIELD_RE = re.compile(r"^\s+([A-Za-z_][\w'!?]*)\s*:(?!=)")
 _CTOR_RE = re.compile(r"^\s*\|\s*([A-Za-z_][\w'!?]*)")
 _SECTION_RE = re.compile(r"^\s*section\b\s*([\w.'’]*)")
@@ -57,6 +61,7 @@ _STRUCT_RE = re.compile(
     r"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:private|protected)\s+)*(?:structure|class|inductive)\s+([\w.'’]+)"
 )
 _NAMESPACE_RE = re.compile(r"^\s*namespace\s+([\w.'’]+)")
+_MUTUAL_RE = re.compile(r"^\s*mutual\b")
 _END_RE = re.compile(r"^\s*end\b")
 _BACKTICK_RE = re.compile(r"`([^`\n]+)`")
 _IDENT_RE = re.compile(r"^[A-Za-z_Ͱ-Ͽ][\w'!?.Ͱ-Ͽ₀-₟₀-₉]*$")
@@ -246,21 +251,19 @@ def _attach_decl(block: Block, code_lines: list[str], end_line: int, end_col: in
     one (`/-- doc -/ theorem t …`), else the first of the following lines that declares
     something. The lines are the file with comments, docstrings and strings blanked, so anchor
     comments and ordinary `/- … -/` blocks between a docstring and its declaration read as
-    blank and are skipped; so are attribute-only lines, `set_option` and `open … in`. The
-    declaration patterns are tried before those skips, so `@[simp] theorem t …` still attaches.
-    """
+    blank and are skipped, however long they are; so are attribute-only lines, `set_option`
+    and `open … in`. The declaration patterns are tried before those skips, so
+    `@[simp] theorem t …` still attaches. The search ends at the first line that declares
+    nothing and is not skippable."""
     candidates = [(end_line, code_lines[end_line - 1][end_col:])]
-    for k in range(end_line, min(end_line + 8, len(code_lines))):
-        candidates.append((k + 1, code_lines[k]))
+    candidates += [(k + 1, code_lines[k]) for k in range(end_line, len(code_lines))]
     for lineno, line in candidates:
         if not line.strip():
             continue
         m = DECL_RE.match(line)
         if m:
-            name = m.group(2)
             block.decl_kind = m.group(1)
-            # `syntax "foo" : tactic`, `elab "foo" : command`: the name is a string literal.
-            block.decl_name = name.strip('"') or None if name else None
+            block.decl_name = decl_name(m.group(1), m.group(2), line)
             block.decl_line = lineno
             return
         m = _FIELD_RE.match(line)
@@ -274,6 +277,20 @@ def _attach_decl(block: Block, code_lines: list[str], end_line: int, end_col: in
         if _SKIP_BEFORE_DECL.match(line):
             continue
         return
+
+
+def decl_name(kind: str, captured: str | None, line: str) -> str | None:
+    """The name a declaration line declares: the string literal of a `syntax`, `macro`,
+    `notation` or `elab` declaration (`syntax "vcvSupport" : tactic` declares `vcvSupport`),
+    else the identifier after the keyword. Anything else the keyword may be followed by
+    (`=>`, `|`, a term) is not a name."""
+    if kind in _LITERAL_NAME_KINDS:
+        m = _LITERAL_NAME_RE.search(line)
+        if m:
+            return m.group(1).strip() or None
+    if captured and _NAME_START_RE.match(captured):
+        return captured
+    return None
 
 
 def decl_signature(lines: list[str], decl_line: int, max_lines: int = 40) -> str:
@@ -355,12 +372,13 @@ def lean_core_src(root: Path) -> Path | None:
 def _collect_names(text: str, names: set[str]) -> None:
     """Declaration names of one file, short and namespace-qualified, plus the fields of its
     structures and classes and the constructors of its inductives (`field`, `Struct.field`).
-    Comments, docstrings and strings are blanked first, so a code example inside a docstring
-    adds no name. `section`/`end` pairs are tracked separately from namespaces so a bare
-    `end` closing a section does not pop a namespace."""
-    scopes: list[tuple[str, str]] = []  # ("namespace" | "section", name)
+    Comments and docstrings are blanked first, so a code example inside a docstring adds no
+    name; string literals are kept because they name `syntax`, `macro`, `notation` and `elab`
+    declarations. `section` and `mutual` are tracked alongside namespaces, so a bare `end`
+    closing either of them does not pop a namespace."""
+    scopes: list[tuple[str, str]] = []  # ("namespace" | "section" | "mutual", name)
     owner: str | None = None  # structure/class/inductive whose body we are in
-    for line in code_only(text).split("\n"):
+    for line in code_only(text, keep_strings=True).split("\n"):
         if not line.strip():
             continue
         if not line[0].isspace() and not line.lstrip().startswith("|"):
@@ -373,14 +391,19 @@ def _collect_names(text: str, names: set[str]) -> None:
         if m:
             scopes.append(("section", m.group(1)))
             continue
+        if _MUTUAL_RE.match(line):
+            scopes.append(("mutual", ""))
+            continue
         if _END_RE.match(line):
             if scopes:
                 scopes.pop()
             continue
         ns = [name for kind, name in scopes if kind == "namespace"]
         m = DECL_RE.match(line)
-        if m and m.group(2):
-            name = m.group(2)
+        if m:
+            name = decl_name(m.group(1), m.group(2), line)
+            if name is None:
+                continue
             names.add(name)
             if ns:
                 names.add(".".join(ns) + "." + name)
@@ -572,8 +595,11 @@ def git_changed_files(root: Path, base: str) -> list[str]:
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
 
-def added_ranges(diff_text: str) -> list[tuple[int, int]]:
-    """Inclusive 1-based line ranges added by a unified diff with zero context."""
+def touched_ranges(diff_text: str) -> list[tuple[int, int]]:
+    """Inclusive 1-based line ranges of the current file touched by a unified diff with zero
+    context. An added hunk `+b,c` gives `(b, b + c - 1)`; a deletion-only hunk `+b,0` has no
+    lines of its own and gives `(b, b + 1)`, the pair the removed lines sat between, so
+    shortening a docstring still selects it."""
     ranges = []
     for line in diff_text.split("\n"):
         m = _HUNK_RE.match(line)
@@ -581,12 +607,11 @@ def added_ranges(diff_text: str) -> list[tuple[int, int]]:
             continue
         start = int(m.group(1))
         count = int(m.group(2)) if m.group(2) is not None else 1
-        if count:
-            ranges.append((start, start + count - 1))
+        ranges.append((start, start + count - 1) if count else (start, start + 1))
     return ranges
 
 
-def git_added_ranges(root: Path, base: str, rel: str) -> list[tuple[int, int]]:
+def git_touched_ranges(root: Path, base: str, rel: str) -> list[tuple[int, int]]:
     """`--no-renames`, so a file renamed since the ref reads as an addition of all its lines
     rather than as rename metadata with no hunks: a renamed file contributes all of its
     blocks, and one renamed and then edited contributes the untouched docstrings too."""
@@ -596,7 +621,7 @@ def git_added_ranges(root: Path, base: str, rel: str) -> list[tuple[int, int]]:
         text=True,
         check=True,
     ).stdout
-    return added_ranges(out)
+    return touched_ranges(out)
 
 
 def in_ranges(block: Block, ranges: list[tuple[int, int]]) -> bool:
@@ -634,7 +659,7 @@ def lint(
         file_blocks = parse_blocks(rel, source)
         words = code_words(source) if name_index is not None else set()
         if base is not None:
-            ranges = git_added_ranges(root, base, rel)
+            ranges = git_touched_ranges(root, base, rel)
             file_blocks = [b for b in file_blocks if in_ranges(b, ranges)]
         lines = source.split("\n")
         for b in file_blocks:
@@ -655,12 +680,26 @@ def render_text(blocks: list[Block]) -> str:
     return "\n".join(out)
 
 
+def _wc_data(s: str) -> str:
+    """A workflow command's message: GitHub decodes `%25`, `%0D` and `%0A` in it, so a
+    docstring carrying those sequences (or a newline) would otherwise break the annotation."""
+    return s.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _wc_prop(s: str) -> str:
+    """A workflow command's property value: `:` and `,` end it, so they are escaped too."""
+    return _wc_data(s).replace(":", "%3A").replace(",", "%2C")
+
+
 def render_github(blocks: list[Block]) -> str:
     out = []
     for b in blocks:
         for f in b.findings:
             level = "error" if f.severity == "error" else "warning"
-            out.append(f"::{level} file={b.path},line={f.line}::{f.code}: {f.message}")
+            out.append(
+                f"::{level} file={_wc_prop(b.path)},line={f.line}"
+                f"::{_wc_data(f.code)}: {_wc_data(f.message)}"
+            )
     return "\n".join(out)
 
 
