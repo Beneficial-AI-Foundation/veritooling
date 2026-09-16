@@ -115,6 +115,28 @@ def test_doc_opener_inside_string_or_line_comment_is_ignored():
     assert [b.decl_name for b in _blocks(text)] == ["t"]
 
 
+def test_character_literal_holding_a_quote_does_not_swallow_the_next_docstring():
+    text = "def quote : Char := '\"'\n/-- Real. -/\ndef t := 1\n"
+    assert [b.decl_name for b in _blocks(text)] == ["t"]
+
+
+def test_prime_in_an_identifier_is_not_a_character_literal():
+    text = "theorem h' (x'' : Nat) : True := trivial\n/-- Real. -/\ndef t := 1\n"
+    assert [b.decl_name for b in _blocks(text)] == ["t"]
+
+
+def test_raw_string_ends_only_at_its_hash_delimiter():
+    # An unpaired `"` in the body desynchronizes a scanner that does not know `r#"`.
+    text = (
+        'def css : String := r#"\n  label: "x\n  /-- injected -/\n'
+        '  theorem fake : True := trivial\n"#\n\n/-- Real. -/\ndef t := 1\n'
+    )
+    assert [b.decl_name for b in _blocks(text)] == ["t"]
+    names = set()
+    dl._collect_names(text, names)
+    assert "fake" not in names and "css" in names
+
+
 def test_one_line_docstring_with_declaration_on_the_same_line():
     text = "/-- docs -/ theorem t : True := trivial\n"
     (b,) = _blocks(text)
@@ -274,6 +296,30 @@ def test_collect_names_ignores_code_examples_in_docstrings():
     assert names == {"t"}
 
 
+def test_collect_names_ignores_string_literal_bodies():
+    names = set()
+    dl._collect_names(
+        'def sample : String :=\n  "theorem stale : True := trivial\n'
+        '   structure Ghost where\n     phantom : Nat\n  "\n',
+        names,
+    )
+    assert names == {"sample"}
+
+
+def test_collect_names_scope_survives_an_end_inside_a_string():
+    names = set()
+    dl._collect_names('namespace N\ndef t := "\n  end\n"\ndef u := 2\nend N\n', names)
+    assert {"N.t", "N.u"} <= names
+
+
+def test_suffix_index_resolves_exactly_like_the_scan():
+    idx = {"A.B.c", "map", "Foo.bar"}
+    suf = dl.suffix_index(idx)
+    assert suf == {"B.c", "c", "bar"}
+    for tok in ("A.B.c", "B.c", "c", "bar", "Invented.map", "nope", "Foo.bar.baz"):
+        assert dl.resolves(tok, idx, suf) == dl.resolves(tok, idx), tok
+
+
 def test_resolves_namespace_suffixes():
     idx = {"Foo.Bar.baz", "qux"}
     assert dl.resolves("baz", idx)
@@ -367,6 +413,18 @@ def test_probe_names(tmp_path):
     p = tmp_path / "extract.json"
     p.write_text(json.dumps({"data": {"probe:GCM.ghash": {}, "other": {}}}), encoding="utf-8")
     assert dl.load_probe_names(p) == {"GCM.ghash"}
+
+
+def test_main_reports_a_bad_probe_file(tmp_path, capsys):
+    (tmp_path / "A.lean").write_text("/-- Doc. -/\ntheorem t : True := trivial\n", encoding="utf-8")
+    bad = tmp_path / "extract.json"
+    for content in ("{", json.dumps({"data": None})):  # malformed, then the wrong shape
+        bad.write_text(content, encoding="utf-8")
+        rc = dl.main(["--root", str(tmp_path), "--all", "--probe", str(bad)])
+        assert rc == 2
+        assert "--probe" in capsys.readouterr().err
+    rc = dl.main(["--root", str(tmp_path), "--all", "--probe", str(tmp_path / "gone.json")])
+    assert rc == 2
 
 
 # --------------------------------------------------------------------------- scope
@@ -525,6 +583,36 @@ def test_base_scope_includes_a_block_only_shortened(tmp_path):
     )
     blocks = dl.lint(tmp_path, ["A.lean"], base="HEAD", max_line=100, name_index=None)
     assert [b.decl_name for b in blocks] == ["t"]  # deletion-only hunk still selects the block
+
+
+def test_base_scope_in_a_git_subdirectory_and_with_a_quoted_path(tmp_path, capsys):
+    def git(*a):
+        subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    proj = tmp_path / "lean"
+    proj.mkdir()
+    (tmp_path / "other").mkdir()
+    (proj / "A.lean").write_text("/-- Old. -/\ntheorem old : True := trivial\n", encoding="utf-8")
+    (tmp_path / "other" / "B.lean").write_text("/-- Out. -/\ndef out := 1\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "base")
+    (proj / "A.lean").write_text(
+        "/-- Old. -/\ntheorem old : True := trivial\n/-- New. -/\ntheorem new : True := trivial\n",
+        encoding="utf-8",
+    )
+    # git C-quotes this name unless it is read with -z
+    (proj / "α.lean").write_text("/-- Greek. -/\ntheorem u : True := trivial\n", encoding="utf-8")
+    (tmp_path / "other" / "B.lean").write_text("/-- Out. -/\ndef out := 2\n", encoding="utf-8")
+    git("add", "-A")
+    # paths are relative to --root, and the file outside the project is not linted
+    assert dl.git_changed_files(proj, "HEAD") == ["A.lean", "α.lean"]
+    rc = dl.main(["--root", str(proj), "--base", "HEAD", "--no-resolve"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "2 blocks" in out and "α.lean" in out and "B.lean" not in out
 
 
 # --------------------------------------------------------------------------- output

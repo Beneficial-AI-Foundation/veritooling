@@ -144,23 +144,31 @@ class Block:
 
 @dataclass
 class Span:
-    """A comment, docstring or string literal: `kind` is `doc` (`/--`), `module` (`/-!`),
-    `comment` (ordinary `/- -/`), `line` (`--`) or `string`; offsets are [start, end)."""
+    """A comment, docstring or literal: `kind` is `doc` (`/--`), `module` (`/-!`), `comment`
+    (ordinary `/- -/`), `line` (`--`), `string` (`"…"` and raw `r#"…"#`) or `char` (`'x'`);
+    offsets are [start, end)."""
 
     kind: str
     start: int
     end: int
 
 
-_OPEN_RE = re.compile(r'/-|--|"')
+_OPEN_RE = re.compile(r"""/-|--|r\#*"|\"""")
 _NEST_RE = re.compile(r"/-|-/")
 _STR_RE = re.compile(r'\\.|"', re.DOTALL)
+# A character literal is only interesting when it holds a quote (`'"'`, `'\"'`): no other
+# one-character literal can spell `"`, `/-` or `--`. Matched around a quote rather than
+# scanned for, since a lone `'` is far more often a prime in an identifier (`h'`, `x''`).
+_CHAR_RE = re.compile(r"'(?:\\.|[^\\'])'", re.DOTALL)
+_IDENT_CHAR_RE = re.compile(r"[\w'!?]")
 
 
 def scan_spans(source: str) -> list[Span]:
-    """Every comment, docstring and string span of a Lean source, in order and non-overlapping.
-    Block comments nest, `--` runs to the end of the line, strings honour backslash escapes.
-    A `/--` inside an ordinary comment or a string is therefore not a docstring."""
+    """Every comment, docstring and literal span of a Lean source, in order and
+    non-overlapping. Block comments nest, `--` runs to the end of the line, plain strings
+    honour backslash escapes, a raw string `r#"…"#` ends only at a quote followed by as many
+    `#` as it opened with, and a character literal may hold a quote (`'"'`). A `/--` inside
+    any of those is therefore not a docstring."""
     spans: list[Span] = []
     pos = 0
     n = len(source)
@@ -181,6 +189,17 @@ def scan_spans(source: str) -> list[Span]:
             e = source.find("\n", i)
             end = n if e < 0 else e
             kind = "line"
+        elif tok.startswith("r"):
+            if i and _IDENT_CHAR_RE.match(source[i - 1]):  # `myr#"` is not a raw string
+                pos = i + 1
+                continue
+            close = '"' + "#" * tok.count("#")
+            j = source.find(close, i + len(tok))
+            end = n if j < 0 else j + len(close)
+            kind = "string"
+        elif char := _quote_in_char_literal(source, i):
+            end = char
+            kind = "char"
         else:
             j = i + 1
             while True:
@@ -196,6 +215,18 @@ def scan_spans(source: str) -> list[Span]:
         spans.append(Span(kind, i, end))
         pos = end
     return spans
+
+
+def _quote_in_char_literal(source: str, i: int) -> int | None:
+    """The end offset of the character literal whose body is the quote at `i`, if that is what
+    it is: `'"'` opens no string, and the docstrings after it must not be lost."""
+    for start in (i - 2, i - 1):
+        if start < 0:
+            continue
+        m = _CHAR_RE.match(source, start)
+        if m and m.start() < i < m.end():
+            return m.end()
+    return None
 
 
 def _block_end(source: str, start: int) -> int:
@@ -215,15 +246,30 @@ def _block_end(source: str, start: int) -> int:
 
 
 def code_only(source: str, *, keep_strings: bool = False) -> str:
-    """The source with every comment, docstring and string blanked out, newlines and offsets
+    """The source with every comment, docstring and literal blanked out, newlines and offsets
     preserved: what is left is code, so words found in it are identifiers in scope.
     `keep_strings` keeps string literals, whose text is the name of a `syntax`, `elab`,
     `macro` or `notation` declaration."""
+    return _blank(source, scan_spans(source), keep_strings)
+
+
+def code_views(source: str) -> tuple[list[str], list[str]]:
+    """The lines of both views — literals blanked, and literals kept — from a single scan.
+    Parsing reads the first and takes declaration names from the second, so the pair is
+    always needed together; scanning twice would double the cost of the name index."""
+    spans = scan_spans(source)
+    return (
+        _blank(source, spans, False).split("\n"),
+        _blank(source, spans, True).split("\n"),
+    )
+
+
+def _blank(source: str, spans: list[Span], keep_strings: bool) -> str:
     pieces: list[str] = []
     pos = 0
-    for sp in scan_spans(source):
+    for sp in spans:
         if keep_strings and sp.kind == "string":
-            continue
+            continue  # `pos` stays put, so the literal survives in the next slice
         pieces.append(source[pos : sp.start])
         pieces.append(re.sub(r"[^\n]", " ", source[sp.start : sp.end]))
         pos = sp.end
@@ -248,7 +294,7 @@ def _line_of(starts: list[int], offset: int) -> int:
 
 def parse_blocks(path: str, source: str) -> list[Block]:
     """All docstring blocks of one file, each attached to the declaration that follows it."""
-    code_lines = code_only(source, keep_strings=True).split("\n")
+    code_lines, literal_lines = code_views(source)
     starts = _line_starts(source)
     blocks: list[Block] = []
     for sp in scan_spans(source):
@@ -265,29 +311,37 @@ def parse_blocks(path: str, source: str) -> list[Block]:
             path, start_line, end_line, kind, raw.strip(), body_line=body_line, end_col=end_col
         )
         if kind == "decl":
-            _attach_decl(block, code_lines, end_line, end_col)
+            _attach_decl(block, code_lines, literal_lines, end_line, end_col)
         blocks.append(block)
     return blocks
 
 
-def _attach_decl(block: Block, code_lines: list[str], end_line: int, end_col: int) -> None:
+def _attach_decl(
+    block: Block,
+    code_lines: list[str],
+    literal_lines: list[str],
+    end_line: int,
+    end_col: int,
+) -> None:
     """Attach the first declaration after the block: the rest of the closing line if it holds
     one (`/-- doc -/ theorem t …`), else the first of the following lines that declares
-    something. The lines are the file with comments, docstrings and strings blanked, so anchor
-    comments and ordinary `/- … -/` blocks between a docstring and its declaration read as
-    blank and are skipped, however long they are; so are attribute-only lines, `set_option`
-    and `open … in`. The declaration patterns are tried before those skips, so
-    `@[simp] theorem t …` still attaches. The search ends at the first line that declares
-    nothing and is not skippable."""
-    candidates = [(end_line, code_lines[end_line - 1][end_col:])]
-    candidates += [(k + 1, code_lines[k]) for k in range(end_line, len(code_lines))]
-    for lineno, line in candidates:
+    something. `code_lines` is the file with comments, docstrings and literals blanked, so
+    anchor comments, ordinary `/- … -/` blocks and the body of a multi-line string between a
+    docstring and its declaration read as blank and are skipped, however long they are; so
+    are attribute-only lines, `set_option` and `open … in`. The declaration patterns are
+    tried before those skips, so `@[simp] theorem t …` still attaches. `literal_lines` keeps
+    the string literals, and is read only for the name of a declaration already recognized
+    on the blanked line. The search ends at the first line that declares nothing and is not
+    skippable."""
+    first = (end_line, code_lines[end_line - 1][end_col:], literal_lines[end_line - 1][end_col:])
+    rest = [(k + 1, code_lines[k], literal_lines[k]) for k in range(end_line, len(code_lines))]
+    for lineno, line, literal in [first, *rest]:
         if not line.strip():
             continue
         m = DECL_RE.match(line)
         if m:
             block.decl_kind = m.group(1)
-            block.decl_name = decl_name(m.group(1), m.group(2), line)
+            block.decl_name = decl_name(m.group(1), m.group(2), literal)
             block.decl_line = lineno
             return
         m = _FIELD_RE.match(line)
@@ -397,13 +451,17 @@ def lean_core_src(root: Path) -> Path | None:
 def _collect_names(text: str, names: set[str]) -> None:
     """Declaration names of one file, short and namespace-qualified, plus the fields of its
     structures and classes and the constructors of its inductives (`field`, `Struct.field`).
-    Comments and docstrings are blanked first, so a code example inside a docstring adds no
-    name; string literals are kept because they name `syntax`, `macro`, `notation` and `elab`
-    declarations. `section` and `mutual` are tracked alongside namespaces, so a bare `end`
-    closing either of them does not pop a namespace."""
+    Comments, docstrings and literals are blanked before anything is matched, so neither a
+    code example inside a docstring nor Lean-looking text inside a string literal adds a name
+    or moves the scope stack; the strings-kept view is read only for the name of a `syntax`,
+    `macro`, `notation` or `elab` already recognized on the blanked line. `section` and
+    `mutual` are tracked alongside namespaces, so a bare `end` closing either of them does
+    not pop a namespace."""
     scopes: list[tuple[str, str]] = []  # ("namespace" | "section" | "mutual", name)
     owner: str | None = None  # structure/class/inductive whose body we are in
-    for line in code_only(text, keep_strings=True).split("\n"):
+    blanked, literals = code_views(text)
+    # Both views preserve every newline, so they have the same number of lines.
+    for line, literal in zip(blanked, literals, strict=True):
         if not line.strip():
             continue
         if not line[0].isspace() and not line.lstrip().startswith("|"):
@@ -426,7 +484,7 @@ def _collect_names(text: str, names: set[str]) -> None:
         ns = [name for kind, name in scopes if kind == "namespace"]
         m = DECL_RE.match(line)
         if m:
-            name = decl_name(m.group(1), m.group(2), line)
+            name = decl_name(m.group(1), m.group(2), literal)
             if name is None:
                 continue
             names.add(name)
@@ -445,18 +503,41 @@ def _collect_names(text: str, names: set[str]) -> None:
 
 
 def load_probe_names(path: Path) -> set[str]:
-    """Declaration names from a probe-lean `extract` JSON (`data` keys `probe:<Name>`)."""
-    data = json.loads(path.read_text(encoding="utf-8")).get("data", {})
+    """Declaration names from a probe-lean `extract` JSON (`data` keys `probe:<Name>`).
+    Raises `OSError` or `ValueError` when the file is missing or is not such an extract."""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        raise ValueError("not a probe-lean extract: no `data` object")
     return {k.split(":", 1)[1] for k in data if k.startswith("probe:")}
 
 
-def resolves(token: str, index: set[str]) -> bool:
+def suffix_index(index: set[str]) -> set[str]:
+    """Every dot-boundary suffix of every indexed name (`A.B.c` gives `B.c` and `c`). Passed
+    to `resolves`, it answers "does any name end in `.token`" with one set lookup instead of
+    a pass over the whole index; on a Mathlib-sized index that is the difference between
+    140 ms and nothing per token that does not resolve."""
+    suffixes: set[str] = set()
+    for name in index:
+        parts = name.split(".")
+        for i in range(1, len(parts)):
+            suffixes.add(".".join(parts[i:]))
+    return suffixes
+
+
+def resolves(token: str, index: set[str], suffixes: set[str] | None = None) -> bool:
+    """A backticked token names something in the index if it is there outright, if some
+    indexed name is a suffix of it (`Foo.bar` with `bar` declared), or if it is a suffix of
+    some indexed name (`bar` with `Foo.bar` declared). `suffixes` from `suffix_index` decides
+    the last case in constant time; without it the index is scanned."""
     if token in index:
         return True
-    for name in index:
-        if name.endswith("." + token) or token.endswith("." + name):
-            return True
-    return False
+    parts = token.split(".")
+    if any(".".join(parts[i:]) in index for i in range(1, len(parts))):
+        return True
+    if suffixes is not None:
+        return token in suffixes
+    return any(name.endswith("." + token) for name in index)
 
 
 # --------------------------------------------------------------------------- checks
@@ -483,6 +564,7 @@ def check_block(
     max_line: int,
     name_index: set[str] | None,
     file_words: set[str],
+    name_suffixes: set[str] | None = None,
 ) -> None:
     # The closing line is measured up to `-/` only: a declaration that follows it
     # (`/-- doc -/ theorem t …`) is not the docstring's line length.
@@ -541,7 +623,7 @@ def check_block(
 
     if name_index is not None:
         sig = decl_signature(lines, block.decl_line) if block.decl_line else ""
-        _check_refs(block, sig, name_index, file_words)
+        _check_refs(block, sig, name_index, file_words, name_suffixes)
 
 
 def _short(s: str, n: int = 60) -> str:
@@ -584,7 +666,13 @@ def _check_restates_decl(block: Block, signature: str) -> None:
         )
 
 
-def _check_refs(block: Block, signature: str, index: set[str], file_words: set[str]) -> None:
+def _check_refs(
+    block: Block,
+    signature: str,
+    index: set[str],
+    file_words: set[str],
+    suffixes: set[str] | None = None,
+) -> None:
     binders = binder_names(signature)
     seen: set[str] = set()
     for m in _BACKTICK_RE.finditer(block.text):
@@ -597,7 +685,7 @@ def _check_refs(block: Block, signature: str, index: set[str], file_words: set[s
         last = tok.rsplit(".", 1)[-1]
         if last in binders or tok in file_words or last in file_words:
             continue
-        if resolves(tok, index):
+        if resolves(tok, index, suffixes):
             continue
         line = block.body_line + block.text[: m.start()].count("\n")
         block.add("unresolved-ref", "warn", line, f"`{tok}` names no declaration found")
@@ -618,13 +706,29 @@ def code_words(source: str) -> set[str]:
 
 
 def git_changed_files(root: Path, base: str) -> list[str]:
+    """The `.lean` files added, modified or renamed since `base`, relative to `root`.
+    `--relative` because `root` may be a subdirectory of the repository, in which case git
+    would otherwise print repository-relative paths (and report files outside the project);
+    `-z` because git C-quotes any other path with non-ASCII bytes, a tab or a newline."""
     out = subprocess.run(
-        ["git", "-C", str(root), "diff", "--name-only", "--diff-filter=AMR", base, "--", "*.lean"],
+        [
+            "git",
+            "-C",
+            str(root),
+            "diff",
+            "--name-only",
+            "-z",
+            "--relative",
+            "--diff-filter=AMR",
+            base,
+            "--",
+            "*.lean",
+        ],
         capture_output=True,
         text=True,
         check=True,
     ).stdout
-    return [line for line in out.split("\n") if line.strip()]
+    return [p for p in out.split("\0") if p.strip()]
 
 
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
@@ -697,6 +801,7 @@ def lint(
     name_index: set[str] | None,
 ) -> list[Block]:
     blocks: list[Block] = []
+    suffixes = suffix_index(name_index) if name_index is not None else None
     for rel in files:
         path = root / rel
         try:
@@ -710,7 +815,14 @@ def lint(
             file_blocks = [b for b in file_blocks if in_ranges(b, ranges)]
         lines = source.split("\n")
         for b in file_blocks:
-            check_block(b, lines, max_line=max_line, name_index=name_index, file_words=words)
+            check_block(
+                b,
+                lines,
+                max_line=max_line,
+                name_index=name_index,
+                file_words=words,
+                name_suffixes=suffixes,
+            )
         blocks.extend(file_blocks)
     return blocks
 
@@ -781,28 +893,36 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     root = Path(args.root).resolve()
+    named = True  # the scope names its files, rather than discovering them
     if args.files:
         files = args.files
         scope_desc = {"files": files}
-        # A file asked for by name and then skipped would let a typo in a CI list pass silently.
-        unreadable = [f"{f}: {err}" for f in files if (err := read_error(root / f))]
-        if unreadable:
-            print("error: cannot read " + "; ".join(unreadable), file=sys.stderr)
-            return 2
     elif args.base:
         files = git_changed_files(root, args.base)
         scope_desc = {"base": args.base}
     else:
         files = project_files(root, args.exclude)
         scope_desc = {"all": True}
+        named = False
     if args.exclude:
         files = [f for f in files if not any(x in f for x in args.exclude)]
+    # A file the caller named, or that git reported as changed, and that is then skipped would
+    # let a typo in a CI list — or a path resolved against the wrong root — pass as success.
+    if named:
+        unreadable = [f"{f}: {err}" for f in files if (err := read_error(root / f))]
+        if unreadable:
+            print("error: cannot read " + "; ".join(unreadable), file=sys.stderr)
+            return 2
 
     index: set[str] | None = None
     if not args.no_resolve:
         index = scan_declared_names(root, include_packages=not args.no_packages)
         if args.probe:
-            index |= load_probe_names(args.probe)
+            try:
+                index |= load_probe_names(args.probe)
+            except (OSError, ValueError) as e:
+                print(f"error: --probe {args.probe}: {e}", file=sys.stderr)
+                return 2
 
     blocks = lint(root, files, base=args.base, max_line=args.max_line, name_index=index)
 

@@ -4,8 +4,10 @@ The mechanical half of a docstring review for Lean 4 projects. It enumerates the
 and `/-! … -/` blocks in scope and reports what needs no judgment; the judgment half is
 [`RUBRIC.md`](RUBRIC.md), applied by a reviewer to the JSON this tool emits.
 
-Standard library only, Python 3.10+. Runs in seconds on a project with a few thousand
-declarations, including the scan of `.lake/packages` and the Lean core sources.
+Standard library only, Python 3.10+. Cost is dominated by building the name index: on
+`secure-messaging` (2 493 blocks; 627 k names indexed from the project, `.lake/packages`
+including Mathlib, and the Lean core sources) `--all` takes about 9 s, of which 8 s is the
+index and under 2 s the blocks themselves. `--no-packages` or `--no-resolve` skip most of it.
 
 ## Usage
 
@@ -29,11 +31,14 @@ hunk that only deletes, the pair of lines the removed ones sat between, so short
 docstring selects it too. The per-file diff runs with
 `--no-renames`, so a new or renamed file reads as an addition of all its lines and contributes
 all of its blocks, while an edited file contributes only the docstrings the change touched.
+The file list is read with `--relative -z`, so `--root` may be a subdirectory of the
+repository (files outside it are not linted) and a path with non-ASCII bytes arrives intact.
 
-Blocks are found by a scanner that tracks ordinary `/- -/` comments, `--` line comments and
-string literals, so a `/--` inside any of those is not a docstring, and a docstring closed on
+Blocks are found by a scanner that tracks ordinary `/- -/` comments, `--` line comments,
+strings — plain, raw (`r#"…"#`, ending only at the matching `"#`) and character literals
+(`'"'`) — so a `/--` inside any of those is not a docstring, and a docstring closed on
 the same line as its declaration (`/-- doc -/ theorem t …`) is attached to it. Declarations are
-read from the same source with comments, docstrings and strings blanked, so an anchor or a note
+read from the same source with comments, docstrings and literals blanked, so an anchor or a note
 comment between a docstring and its declaration is skipped, and a declaration sharing a line
 with its attributes (`@[simp] theorem t …`) still attaches.
 
@@ -52,8 +57,10 @@ with its attributes (`@[simp] theorem t …`) still attaches.
 | `connective` | info | occurrences of so / hence / therefore / thus, each of which must be a real implication |
 
 Severity `error` is for facts, `warn` for strong heuristics, `info` for things the rubric pass
-should look at but that are often fine. `--strict` exits 1 only on errors; a file named in
-`--files` that cannot be read exits 2, while a file found by `--all` or `--base` is skipped.
+should look at but that are often fine. `--strict` exits 1 only on errors. Exit 2 is a bad
+input rather than a finding: a file named in `--files`, a file git reported as changed for
+`--base`, or a `--probe` extract that cannot be read. Files merely discovered by `--all` are
+skipped on a read error, since the tree may hold anything.
 
 `unresolved-ref` is what a rename leaves behind. Names are resolved against a regex scan of
 every declaration (`theorem`, `def`, `structure`, …, short and namespace-qualified, with
