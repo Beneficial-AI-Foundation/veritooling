@@ -37,10 +37,10 @@ the same line as its declaration (`/-- doc -/ theorem t …`) is attached to it.
 |---|---|---|
 | `long-line` | error | a docstring line over the limit, counted in characters (`--max-line`, default 100) |
 | `unresolved-ref` | warn | a backticked identifier that names nothing: not a declaration in the project, its Lake packages or the Lean core sources, not a module of any of those, not a binder of the declaration, and not a word in the project's code (comments, docstrings and strings excluded) |
-| `trivial` | warn | three words or fewer on a theorem, lemma or definition (structure fields are exempt) |
+| `trivial` | warn | three words or fewer, backticked names counted, on a `theorem`, `lemma`, `def` or `abbrev`; fields, constructors, structures and instances are exempt |
 | `name-restated` | warn | the docstring is the declaration name spelled out |
-| `restates-decl` | warn | a one- or two-line docstring whose identifiers are almost all the statement's own |
-| `proof-restated` | warn | a `Proof:` / `Proof sketch:` line |
+| `restates-decl` | warn | a one- or two-line docstring on a theorem, lemma, def or abbrev whose backticked identifiers are almost all the statement's own |
+| `proof-restated` | warn | a `Proof:` / `Proof sketch:` line, a candidate for saying only what the proof term says |
 | `question-form` | info | opens with "Why …", answering a question the reader has not met |
 | `paren` | info | a parenthesised phrase in the prose (backtick spans excluded) |
 | `connective` | info | occurrences of so / hence / therefore / thus, each of which must be a real implication |
@@ -49,8 +49,8 @@ Severity `error` is for facts, `warn` for strong heuristics, `info` for things t
 should look at but that are often fine. `--strict` exits 1 only on errors.
 
 `unresolved-ref` is what a rename leaves behind. Names are resolved against a regex scan of
-every declaration (`theorem`, `def`, `structure`, …, short and namespace-qualified) in the
-project, `.lake/packages`, and `~/.elan/toolchains/<pinned>/src/lean` when `lean-toolchain`
+every declaration (`theorem`, `def`, `structure`, …, short and namespace-qualified, with
+structure fields and inductive constructors as `field` and `Struct.field`) in the project, `.lake/packages`, and `~/.elan/toolchains/<pinned>/src/lean` when `lean-toolchain`
 pins an installed toolchain. A probe-lean extract (`--probe extract.json`) adds its exact
 declaration list. Tokens containing superscripts or subscripts are treated as notation and
 skipped, as are Lean keywords and common tactics. `--no-resolve` skips the check;

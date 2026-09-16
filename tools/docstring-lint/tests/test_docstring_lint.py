@@ -163,7 +163,10 @@ def test_trivial_only_for_real_declarations():
     out = _lint(index=set())
     assert "trivial" in _codes(out["baz"])  # "Baz thing." on a def
     assert "trivial" not in _codes(out["perm"])  # short field docs are fine
+    assert "trivial" not in _codes(out["Cipher"])  # structures are exempt
     assert "trivial" not in _codes(out["header"])
+    text = "/-- Uses `foo`. -/\ntheorem t : True := trivial\n"
+    assert "trivial" in _codes(_lint(text, index=set())["t"])  # backticked names count as words
 
 
 def test_name_restated():
@@ -188,6 +191,17 @@ def test_proof_requires_colon():
     assert "proof-restated" in _codes(_lint(text, index=set())["t"])
 
 
+def test_same_line_docstring_is_not_part_of_the_signature():
+    text = "/-- `alpha` `beta` `gamma` -/ theorem t : True := trivial\n"
+    out = _lint(text, index=set())
+    assert "restates-decl" not in _codes(out["t"])
+
+
+def test_restates_decl_applies_to_defs():
+    text = "/-- `foo` of `bar` and `baz`. -/\ndef fooBarBaz (bar baz : Nat) : Nat := foo bar baz\n"
+    assert "restates-decl" in _codes(_lint(text, index=set())["fooBarBaz"])
+
+
 def test_question_form():
     text = "/-- Why the bound has no extra term: reasons. -/\ntheorem t : True := trivial\n"
     assert "question-form" in _codes(_lint(text, index=set())["t"])
@@ -200,6 +214,12 @@ def test_unresolved_ref_rules():
     quux = out["quux"]
     msgs = [f.message for f in quux.findings if f.code == "unresolved-ref"]
     assert msgs == ["`gone` names no declaration found"]  # not `x⁷` (notation), not `hn` (binder)
+
+
+def test_unresolved_ref_one_character_tokens_are_checked():
+    text = "/-- Uses `z` and `n`. -/\ntheorem t (n : Nat) : True := trivial\n"
+    msgs = [f.message for f in _lint(text, index=set())["t"].findings if f.code == "unresolved-ref"]
+    assert msgs == ["`z` names no declaration found"]
 
 
 def test_unresolved_ref_accepts_words_from_the_files_code():
@@ -239,6 +259,36 @@ def test_collect_names_tracks_namespaces():
         "namespace A\nnamespace B\ntheorem t : True := trivial\nend B\nend A\n", names
     )
     assert names == {"t", "A.B.t"}
+
+
+def test_collect_names_sections_do_not_pop_namespaces():
+    names = set()
+    src = (
+        "namespace Foo\nsection\ntheorem t : True := trivial\nend\n"
+        "theorem u : True := trivial\nend Foo\n"
+    )
+    dl._collect_names(src, names)
+    assert {"Foo.t", "Foo.u"} <= names
+
+
+def test_collect_names_fields_and_constructors():
+    names = set()
+    src = (
+        "namespace N\nstructure S where\n  /-- f -/\n  fld : Nat\n  other : Nat\n"
+        "inductive T where\n  | mk\n  | cons (n : Nat)\nend N\n"
+    )
+    dl._collect_names(src, names)
+    assert {"fld", "S.fld", "N.S.fld", "other", "mk", "T.mk", "cons", "T.cons"} <= names
+
+
+def test_constructor_docstring_is_attached():
+    text = (
+        "inductive T where\n  /-- Nothing. -/\n  | none\n  /-- Something. -/\n  | some (n : Nat)\n"
+    )
+    bs = _blocks(text)
+    assert [(b.decl_kind, b.decl_name) for b in bs] == [("ctor", "none"), ("ctor", "some")]
+    out = _lint(text, index=set())
+    assert "trivial" not in _codes(out["none"])
 
 
 def test_probe_names(tmp_path):
@@ -317,6 +367,25 @@ def test_base_scope_includes_renamed_files(tmp_path):
     )
     git("add", "-A")
     assert dl.git_changed_files(tmp_path, "HEAD") == ["B.lean"]
+
+
+def test_pure_rename_contributes_all_blocks(tmp_path):
+    def git(*a):
+        subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    (tmp_path / "A.lean").write_text(
+        "/-- Old. -/\ntheorem old : True := trivial\n", encoding="utf-8"
+    )
+    git("add", "A.lean")
+    git("commit", "-q", "-m", "base")
+    git("mv", "A.lean", "B.lean")
+    git("commit", "-q", "-m", "rename")
+    files = dl.git_changed_files(tmp_path, "HEAD~1")
+    blocks = dl.lint(tmp_path, files, base="HEAD~1", max_line=100, name_index=None)
+    assert [b.decl_name for b in blocks] == ["old"]  # git shows the new path as all-added
 
 
 def test_base_scope_end_to_end(tmp_path):

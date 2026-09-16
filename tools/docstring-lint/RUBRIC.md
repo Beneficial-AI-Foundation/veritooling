@@ -55,14 +55,14 @@ One markdown file, findings grouped by file in source order, a summary table of 
 counts at the top, and code-level side notes (unused hypotheses, duplicated lemmas, dead
 declarations found on the way) in their own section since they are not docstring edits:
 
-```markdown
+````markdown
 ## `path/to/File.lean`
 ### `declName` (line N) — VERDICT
 <one or two sentences: what a reviewer would not understand or not gain, or why it is fine>
 ```lean
 /-- replacement text, for REPHRASE and WRONG -/
 ```
-```
+````
 
 Mask markdown headings inside code fences when parsing the report: a docstring whose own
 text contains `## References` otherwise splits an item.

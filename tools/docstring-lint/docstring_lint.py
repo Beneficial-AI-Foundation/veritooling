@@ -49,6 +49,11 @@ DECL_RE = re.compile(
 # Lines that may sit between a docstring and its declaration.
 _SKIP_BEFORE_DECL = re.compile(r"^\s*(@\[|--|set_option\b|open\b.*\bin\s*$|attribute\b)")
 _FIELD_RE = re.compile(r"^\s+([A-Za-z_][\w'!?]*)\s*:(?!=)")
+_CTOR_RE = re.compile(r"^\s*\|\s*([A-Za-z_][\w'!?]*)")
+_SECTION_RE = re.compile(r"^\s*section\b\s*([\w.'’]*)")
+_STRUCT_RE = re.compile(
+    r"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:private|protected)\s+)*(?:structure|class|inductive)\s+([\w.'’]+)"
+)
 _NAMESPACE_RE = re.compile(r"^\s*namespace\s+([\w.'’]+)")
 _END_RE = re.compile(r"^\s*end\b")
 _BACKTICK_RE = re.compile(r"`([^`\n]+)`")
@@ -249,6 +254,12 @@ def _attach_decl(block: Block, lines: list[str], end_line: int, end_col: int) ->
             block.decl_kind = "field"
             block.decl_name = m.group(1)
             block.decl_line = lineno
+            return
+        m = _CTOR_RE.match(line)
+        if m:
+            block.decl_kind = "ctor"
+            block.decl_name = m.group(1)
+            block.decl_line = lineno
         return
 
 
@@ -261,7 +272,7 @@ def decl_signature(lines: list[str], decl_line: int, max_lines: int = 40) -> str
         out.append(line)
         if ":=" in line or re.search(r"\b(where|by)\s*$", line):
             break
-    return "\n".join(out)
+    return code_only("\n".join(out))
 
 
 def binder_names(signature: str) -> set[str]:
@@ -329,23 +340,47 @@ def lean_core_src(root: Path) -> Path | None:
 
 
 def _collect_names(text: str, names: set[str]) -> None:
-    """Declaration names of one file, short and namespace-qualified. Comments, docstrings and
-    strings are blanked first, so a code example inside a docstring adds no name."""
-    ns: list[str] = []
+    """Declaration names of one file, short and namespace-qualified, plus the fields of its
+    structures and classes and the constructors of its inductives (`field`, `Struct.field`).
+    Comments, docstrings and strings are blanked first, so a code example inside a docstring
+    adds no name. `section`/`end` pairs are tracked separately from namespaces so a bare
+    `end` closing a section does not pop a namespace."""
+    scopes: list[tuple[str, str]] = []  # ("namespace" | "section", name)
+    owner: str | None = None  # structure/class/inductive whose body we are in
     for line in code_only(text).split("\n"):
+        if not line.strip():
+            continue
+        if not line[0].isspace() and not line.lstrip().startswith("|"):
+            owner = None
         m = _NAMESPACE_RE.match(line)
         if m:
-            ns.append(m.group(1))
+            scopes.append(("namespace", m.group(1)))
             continue
-        if _END_RE.match(line) and ns:
-            ns.pop()
+        m = _SECTION_RE.match(line)
+        if m:
+            scopes.append(("section", m.group(1)))
             continue
+        if _END_RE.match(line):
+            if scopes:
+                scopes.pop()
+            continue
+        ns = [name for kind, name in scopes if kind == "namespace"]
         m = DECL_RE.match(line)
         if m and m.group(2):
             name = m.group(2)
             names.add(name)
             if ns:
                 names.add(".".join(ns) + "." + name)
+            sm = _STRUCT_RE.match(line)
+            owner = sm.group(1) if sm else None
+            continue
+        if owner is not None:
+            m = _FIELD_RE.match(line) or _CTOR_RE.match(line)
+            if m:
+                names.add(m.group(1))
+                names.add(owner + "." + m.group(1))
+                if ns:
+                    names.add(".".join(ns) + "." + owner + "." + m.group(1))
 
 
 def load_probe_names(path: Path) -> set[str]:
@@ -401,19 +436,20 @@ def check_block(
     prose = _prose(block.text)
     words = _WORD_RE.findall(prose)
 
-    if (
-        block.kind == "decl"
-        and block.decl_kind not in (None, "field")
-        and len(words) <= 3
-        and not _BACKTICK_RE.search(block.text)
-    ):
+    n_words = len(words) + len(_BACKTICK_RE.findall(block.text))
+    if block.decl_kind in ("theorem", "lemma", "def", "abbrev") and n_words <= 3:
         block.add("trivial", "warn", block.start, "three words or fewer")
 
     if block.decl_name and _restates_name(prose, block.decl_name):
         block.add("name-restated", "warn", block.start, "the docstring is the name, spelled out")
 
     if _PROOF_RE.search(block.text):
-        block.add("proof-restated", "warn", block.start, "a `Proof:` line mirrors the proof body")
+        block.add(
+            "proof-restated",
+            "warn",
+            block.start,
+            "has a `Proof:` line; check it says more than the proof term does",
+        )
 
     if re.match(r"\s*Why\b", prose):
         block.add("question-form", "info", block.start, "answers a question the reader has not met")
@@ -434,7 +470,7 @@ def check_block(
             f"{len(conn)} of so/hence/therefore/thus; each must be a real implication",
         )
 
-    if block.decl_line and block.decl_kind in ("theorem", "lemma"):
+    if block.decl_line and block.decl_kind in ("theorem", "lemma", "def", "abbrev"):
         sig = decl_signature(lines, block.decl_line)
         _check_restates_decl(block, sig)
 
@@ -482,7 +518,7 @@ def _check_refs(block: Block, signature: str, index: set[str], file_words: set[s
     seen: set[str] = set()
     for m in _BACKTICK_RE.finditer(block.text):
         tok = m.group(1).strip()
-        if tok in seen or not _IDENT_RE.match(tok) or len(tok) < 2 or _NOTATION_RE.search(tok):
+        if tok in seen or not _IDENT_RE.match(tok) or _NOTATION_RE.search(tok):
             continue
         seen.add(tok)
         if tok in LEAN_WORDS or tok in binders:
