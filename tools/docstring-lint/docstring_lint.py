@@ -14,6 +14,7 @@ Standard library only, Python 3.10+.
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import re
 import subprocess
@@ -55,7 +56,7 @@ _IDENT_RE = re.compile(r"^[A-Za-z_Ͱ-Ͽ][\w'!?.Ͱ-Ͽ₀-₟₀-₉]*$")
 _BINDER_RE = re.compile(r"[(\[{⦃]\s*([^:()\[\]{}⦃⦄]+?)\s*:")
 _CONNECTIVE_RE = re.compile(r"\b(so|hence|therefore|thus)\b", re.IGNORECASE)
 _PAREN_RE = re.compile(r"\(([^()]*)\)")
-_PROOF_RE = re.compile(r"^\s*\**\s*Proof\b", re.IGNORECASE)
+_PROOF_RE = re.compile(r"^\s*\**\s*Proof(?: idea| sketch)?\s*:", re.IGNORECASE | re.MULTILINE)
 _WORD_RE = re.compile(r"[A-Za-z_][\w']*")
 # Superscripts and subscripts mark math notation (`x¹²⁸`, `J₀`), not identifiers to resolve.
 _NOTATION_RE = re.compile(r"[\u00b2\u00b3\u00b9\u1d2c-\u1d6a\u2070-\u209f]")
@@ -93,6 +94,7 @@ class Block:
     end: int
     kind: str  # "decl" (/--) or "module" (/-!)
     text: str  # docstring body without the comment markers
+    body_line: int = 0  # line where `text` begins, for finding locations
     decl_kind: str | None = None
     decl_name: str | None = None
     decl_line: int | None = None
@@ -102,86 +104,151 @@ class Block:
         self.findings.append(Finding(code, severity, line, message))
 
 
-# --------------------------------------------------------------------------- parsing
+# --------------------------------------------------------------------------- scanning
 
 
-def _scan_block_end(lines: list[str], start: int, col: int) -> int:
-    """Index of the line holding the `-/` that closes the comment opened at (start, col).
+@dataclass
+class Span:
+    """A comment, docstring or string literal: `kind` is `doc` (`/--`), `module` (`/-!`),
+    `comment` (ordinary `/- -/`), `line` (`--`) or `string`; offsets are [start, end)."""
 
-    Lean block comments nest, so `/-` inside the docstring raises the depth."""
-    depth = 0
-    i, j = start, col
-    while i < len(lines):
-        line = lines[i]
-        while j < len(line) - 1:
-            two = line[j : j + 2]
-            if two == "/-":
-                depth += 1
-                j += 2
-                continue
-            if two == "-/":
-                depth -= 1
-                j += 2
-                if depth == 0:
-                    return i
-                continue
-            j += 1
-        i += 1
-        j = 0
-    return len(lines) - 1
+    kind: str
+    start: int
+    end: int
 
 
-def _body(lines: list[str], start: int, end: int) -> str:
-    raw = "\n".join(lines[start : end + 1])
-    raw = raw.strip()
-    for opener in ("/--", "/-!"):
-        if raw.startswith(opener):
-            raw = raw[len(opener) :]
+_OPEN_RE = re.compile(r'/-|--|"')
+_NEST_RE = re.compile(r"/-|-/")
+_STR_RE = re.compile(r'\\.|"', re.DOTALL)
+
+
+def scan_spans(source: str) -> list[Span]:
+    """Every comment, docstring and string span of a Lean source, in order and non-overlapping.
+    Block comments nest, `--` runs to the end of the line, strings honour backslash escapes.
+    A `/--` inside an ordinary comment or a string is therefore not a docstring."""
+    spans: list[Span] = []
+    pos = 0
+    n = len(source)
+    while True:
+        m = _OPEN_RE.search(source, pos)
+        if not m:
             break
-    if raw.endswith("-/"):
-        raw = raw[:-2]
-    return raw.strip()
+        i, tok = m.start(), m.group(0)
+        if tok == "/-":
+            if source.startswith("/-!", i):
+                kind = "module"
+            elif source.startswith("/--", i) and not source.startswith("/--/", i):
+                kind = "doc"
+            else:
+                kind = "comment"
+            end = _block_end(source, i)
+        elif tok == "--":
+            e = source.find("\n", i)
+            end = n if e < 0 else e
+            kind = "line"
+        else:
+            j = i + 1
+            while True:
+                m2 = _STR_RE.search(source, j)
+                if not m2:
+                    j = n
+                    break
+                j = m2.end()
+                if m2.group(0) == '"':
+                    break
+            end = j
+            kind = "string"
+        spans.append(Span(kind, i, end))
+        pos = end
+    return spans
+
+
+def _block_end(source: str, start: int) -> int:
+    depth = 0
+    pos = start
+    while True:
+        m = _NEST_RE.search(source, pos)
+        if not m:
+            return len(source)
+        if m.group(0) == "/-":
+            depth += 1
+        else:
+            depth -= 1
+            if depth == 0:
+                return m.end()
+        pos = m.end()
+
+
+def code_only(source: str) -> str:
+    """The source with every comment, docstring and string blanked out, newlines and offsets
+    preserved: what is left is code, so words found in it are identifiers in scope."""
+    pieces: list[str] = []
+    pos = 0
+    for sp in scan_spans(source):
+        pieces.append(source[pos : sp.start])
+        pieces.append(re.sub(r"[^\n]", " ", source[sp.start : sp.end]))
+        pos = sp.end
+    pieces.append(source[pos:])
+    return "".join(pieces)
+
+
+def _line_starts(source: str) -> list[int]:
+    starts = [0]
+    for m in re.finditer(r"\n", source):
+        starts.append(m.end())
+    return starts
+
+
+def _line_of(starts: list[int], offset: int) -> int:
+    """1-based line holding `offset`."""
+    return bisect.bisect_right(starts, offset)
+
+
+# --------------------------------------------------------------------------- parsing
 
 
 def parse_blocks(path: str, source: str) -> list[Block]:
     """All docstring blocks of one file, each attached to the declaration that follows it."""
     lines = source.split("\n")
+    starts = _line_starts(source)
     blocks: list[Block] = []
-    i = 0
-    while i < len(lines):
-        stripped = lines[i].lstrip()
-        if stripped.startswith("/--") or stripped.startswith("/-!"):
-            col = len(lines[i]) - len(stripped)
-            end = _scan_block_end(lines, i, col)
-            kind = "module" if stripped.startswith("/-!") else "decl"
-            block = Block(path, i + 1, end + 1, kind, _body(lines, i, end))
-            if kind == "decl":
-                _attach_decl(block, lines, end + 1)
-            blocks.append(block)
-            i = end + 1
+    for sp in scan_spans(source):
+        if sp.kind not in ("doc", "module"):
             continue
-        i += 1
+        start_line = _line_of(starts, sp.start)
+        end_line = _line_of(starts, max(sp.start, sp.end - 1))
+        raw = source[sp.start + 3 : max(sp.start + 3, sp.end - 2)]
+        lead = len(raw) - len(raw.lstrip())
+        body_line = start_line + raw[:lead].count("\n")
+        kind = "decl" if sp.kind == "doc" else "module"
+        block = Block(path, start_line, end_line, kind, raw.strip(), body_line=body_line)
+        if kind == "decl":
+            _attach_decl(block, lines, end_line, sp.end - starts[end_line - 1])
+        blocks.append(block)
     return blocks
 
 
-def _attach_decl(block: Block, lines: list[str], from_idx: int) -> None:
-    """Attach the first declaration within a few lines after the block, skipping attributes,
-    line comments (anchors) and `set_option` lines."""
-    for k in range(from_idx, min(from_idx + 8, len(lines))):
-        line = lines[k]
+def _attach_decl(block: Block, lines: list[str], end_line: int, end_col: int) -> None:
+    """Attach the first declaration after the block: the rest of the closing line if it holds
+    one (`/-- doc -/ theorem t …`), else the first of the following lines that is not blank, an
+    attribute, a line comment (anchors) or a `set_option`."""
+    candidates = [(end_line, lines[end_line - 1][end_col:])]
+    for k in range(end_line, min(end_line + 8, len(lines))):
+        candidates.append((k + 1, lines[k]))
+    for lineno, line in candidates:
         if not line.strip() or _SKIP_BEFORE_DECL.match(line):
             continue
         m = DECL_RE.match(line)
         if m:
             block.decl_kind = m.group(1)
             block.decl_name = m.group(2)
-            block.decl_line = k + 1
+            block.decl_line = lineno
             return
         m = _FIELD_RE.match(line)
         if m:
             block.decl_kind = "field"
             block.decl_name = m.group(1)
-            block.decl_line = k + 1
+            block.decl_line = lineno
         return
 
 
@@ -227,7 +294,7 @@ def scan_declared_names(root: Path, include_packages: bool = True) -> set[str]:
         except (UnicodeDecodeError, OSError):
             continue
         _collect_names(text, names)
-        names.update(code_words(text, parse_blocks(str(rel), text)))
+        names.update(code_words(text))
     others: list[Path] = []
     pkgs = root / ".lake" / "packages"
     if include_packages and pkgs.is_dir():
@@ -238,6 +305,9 @@ def scan_declared_names(root: Path, include_packages: bool = True) -> set[str]:
     for base in others:
         names.add(base.name)
         for path in base.rglob("*.lean"):
+            rel = path.relative_to(base).with_suffix("")
+            names.update(rel.parts)
+            names.add(".".join(rel.parts))
             try:
                 text = path.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError):
@@ -259,8 +329,10 @@ def lean_core_src(root: Path) -> Path | None:
 
 
 def _collect_names(text: str, names: set[str]) -> None:
+    """Declaration names of one file, short and namespace-qualified. Comments, docstrings and
+    strings are blanked first, so a code example inside a docstring adds no name."""
     ns: list[str] = []
-    for line in text.split("\n"):
+    for line in code_only(text).split("\n"):
         m = _NAMESPACE_RE.match(line)
         if m:
             ns.append(m.group(1))
@@ -340,7 +412,7 @@ def check_block(
     if block.decl_name and _restates_name(prose, block.decl_name):
         block.add("name-restated", "warn", block.start, "the docstring is the name, spelled out")
 
-    if _PROOF_RE.search(block.text) or re.search(r"\n\s*Proof:", block.text):
+    if _PROOF_RE.search(block.text):
         block.add("proof-restated", "warn", block.start, "a `Proof:` line mirrors the proof body")
 
     if re.match(r"\s*Why\b", prose):
@@ -350,7 +422,7 @@ def check_block(
         inner = m.group(1).strip()
         if not inner:
             continue
-        line = block.start + block.text[: m.start()].count("\n")
+        line = block.body_line + block.text[: m.start()].count("\n")
         block.add("paren", "info", line, f"({_short(inner)})")
 
     conn = _CONNECTIVE_RE.findall(prose)
@@ -420,24 +492,18 @@ def _check_refs(block: Block, signature: str, index: set[str], file_words: set[s
             continue
         if resolves(tok, index):
             continue
-        line = block.start + block.text[: m.start()].count("\n")
+        line = block.body_line + block.text[: m.start()].count("\n")
         block.add("unresolved-ref", "warn", line, f"`{tok}` names no declaration found")
 
 
-def code_words(source: str, blocks: list[Block]) -> set[str]:
-    """Identifier-like words in the file's non-docstring lines (fields, local notation,
-    binders in `variable` lines): a backticked token found here is not a dangling reference."""
-    lines = source.split("\n")
-    doc = set()
-    for b in blocks:
-        doc.update(range(b.start - 1, b.end))
+def code_words(source: str) -> set[str]:
+    """Identifier-like words in the file's code, with comments, docstrings and strings blanked
+    (fields, local notation, pattern variables, binders of other declarations). A backticked
+    token found here is not a dangling reference. Dotted tokens also contribute their parts."""
     words: set[str] = set()
-    for i, line in enumerate(lines):
-        if i in doc:
-            continue
-        for tok in re.findall(r"[\w'!?.Ͱ-Ͽ₀-₟]+", line):
-            words.add(tok)
-            words.update(tok.split("."))
+    for tok in re.findall(r"[\w'!?.Ͱ-Ͽ₀-₟]+", code_only(source)):
+        words.add(tok)
+        words.update(tok.split("."))
     return words
 
 
@@ -446,7 +512,7 @@ def code_words(source: str, blocks: list[Block]) -> set[str]:
 
 def git_changed_files(root: Path, base: str) -> list[str]:
     out = subprocess.run(
-        ["git", "-C", str(root), "diff", "--name-only", "--diff-filter=AM", base, "--", "*.lean"],
+        ["git", "-C", str(root), "diff", "--name-only", "--diff-filter=AMR", base, "--", "*.lean"],
         capture_output=True,
         text=True,
         check=True,
@@ -514,10 +580,10 @@ def lint(
         except (UnicodeDecodeError, OSError):
             continue
         file_blocks = parse_blocks(rel, source)
+        words = code_words(source) if name_index is not None else set()
         if base is not None:
             ranges = git_added_ranges(root, base, rel)
             file_blocks = [b for b in file_blocks if in_ranges(b, ranges)]
-        words = code_words(source, file_blocks) if name_index is not None else set()
         lines = source.split("\n")
         for b in file_blocks:
             check_block(b, lines, max_line=max_line, name_index=name_index, file_words=words)

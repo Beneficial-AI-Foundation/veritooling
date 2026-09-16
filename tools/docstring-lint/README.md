@@ -24,19 +24,23 @@ python3 docstring_lint.py --base origin/main --strict
 ```
 
 Exactly one of `--base`, `--files`, `--all` is required. `--base` takes any git ref and keeps a
-block when one of its lines is in the diff's added ranges, so a new file contributes all of its
-blocks and an edited file only the docstrings the change touched.
+block when one of its lines is in the diff's added ranges, so a new or renamed file contributes
+all of its blocks and an edited file only the docstrings the change touched.
+
+Blocks are found by a scanner that tracks ordinary `/- -/` comments, `--` line comments and
+string literals, so a `/--` inside any of those is not a docstring, and a docstring closed on
+the same line as its declaration (`/-- doc -/ theorem t …`) is attached to it.
 
 ## Checks
 
 | code | severity | what it flags |
 |---|---|---|
 | `long-line` | error | a docstring line over the limit, counted in characters (`--max-line`, default 100) |
-| `unresolved-ref` | warn | a backticked identifier that names nothing: not a declaration in the project, its Lake packages or the Lean core sources, not a module, not a binder of the declaration, and not a word anywhere in the project's code |
+| `unresolved-ref` | warn | a backticked identifier that names nothing: not a declaration in the project, its Lake packages or the Lean core sources, not a module of any of those, not a binder of the declaration, and not a word in the project's code (comments, docstrings and strings excluded) |
 | `trivial` | warn | three words or fewer on a theorem, lemma or definition (structure fields are exempt) |
 | `name-restated` | warn | the docstring is the declaration name spelled out |
 | `restates-decl` | warn | a one- or two-line docstring whose identifiers are almost all the statement's own |
-| `proof-restated` | warn | a `Proof:` line |
+| `proof-restated` | warn | a `Proof:` / `Proof sketch:` line |
 | `question-form` | info | opens with "Why …", answering a question the reader has not met |
 | `paren` | info | a parenthesised phrase in the prose (backtick spans excluded) |
 | `connective` | info | occurrences of so / hence / therefore / thus, each of which must be a real implication |

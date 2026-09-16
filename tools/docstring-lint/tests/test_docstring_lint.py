@@ -83,13 +83,49 @@ def test_binder_names():
     assert dl.binder_names(sig) == {"α", "inst", "x", "y", "hxy"}
 
 
+def test_doc_opener_inside_ordinary_comment_is_not_a_docstring():
+    text = (
+        "/- An example:\n/-- looks like a docstring -/\ntheorem fake : True := trivial\n-/\n"
+        "/-- Real. -/\ntheorem real : True := trivial\n"
+    )
+    bs = _blocks(text)
+    assert [b.decl_name for b in bs] == ["real"]
+
+
+def test_doc_opener_inside_string_or_line_comment_is_ignored():
+    text = 'def s : String := "/-- not a doc -/"\n-- /-- nor this -/\n/-- Yes. -/\ndef t := 1\n'
+    assert [b.decl_name for b in _blocks(text)] == ["t"]
+
+
+def test_one_line_docstring_with_declaration_on_the_same_line():
+    text = "/-- docs -/ theorem t : True := trivial\n"
+    (b,) = _blocks(text)
+    assert (b.text, b.decl_name, b.decl_line) == ("docs", "t", 1)
+
+
+def test_body_line_tracks_stripped_leading_newline():
+    text = "/--\nFirst (with paren).\n-/\ntheorem t : True := trivial\n"
+    (b,) = _blocks(text)
+    assert b.body_line == 2
+    lines = text.split("\n")
+    dl.check_block(b, lines, max_line=100, name_index=None, file_words=set())
+    assert [f.line for f in b.findings if f.code == "paren"] == [2]
+
+
+def test_code_only_blanks_comments_docstrings_and_strings():
+    text = 'theorem t := "-- not a comment" -- `gone`\n/- gone -/ /-- gone -/ def u := 1\n'
+    code = dl.code_only(text)
+    assert "gone" not in code and "theorem t" in code and "def u" in code
+    assert code.count("\n") == text.count("\n")
+
+
 # --------------------------------------------------------------------------- checks
 
 
 def _lint(text=SAMPLE, index=None, max_line=100):
     bs = _blocks(text)
     lines = text.split("\n")
-    words = dl.code_words(text, bs)
+    words = dl.code_words(text)
     for b in bs:
         dl.check_block(b, lines, max_line=max_line, name_index=index, file_words=words)
     return {(b.decl_name or "header"): b for b in bs}
@@ -145,6 +181,13 @@ def test_restates_decl():
     assert "restates-decl" in _codes(_lint(text, index=set())["ghash_encode"])
 
 
+def test_proof_requires_colon():
+    text = "/-- Proof obligations are discharged by `simp`. -/\ntheorem t : True := trivial\n"
+    assert "proof-restated" not in _codes(_lint(text, index=set())["t"])
+    text = "/-- The bound.\n\nProof sketch: unfold. -/\ntheorem t : True := trivial\n"
+    assert "proof-restated" in _codes(_lint(text, index=set())["t"])
+
+
 def test_question_form():
     text = "/-- Why the bound has no extra term: reasons. -/\ntheorem t : True := trivial\n"
     assert "question-form" in _codes(_lint(text, index=set())["t"])
@@ -162,6 +205,19 @@ def test_unresolved_ref_rules():
 def test_unresolved_ref_accepts_words_from_the_files_code():
     text = "/-- Reads `perm` of the cipher. -/\ndef useIt (c : Cipher K) : K := c.perm\n"
     assert "unresolved-ref" not in _codes(_lint(text, index=set())["useIt"])
+
+
+def test_code_words_excludes_comments_and_strings():
+    text = '/-- Refers to `gone`. -/\n-- gone was renamed\ndef t : String := "gone"\n'
+    assert "unresolved-ref" in _codes(_lint(text, index=set())["t"])
+
+
+def test_collect_names_ignores_code_examples_in_docstrings():
+    names = set()
+    dl._collect_names(
+        "/-- Example:\n```\ntheorem stale : True := trivial\n```\n-/\ndef t := 1\n", names
+    )
+    assert names == {"t"}
 
 
 def test_resolves_namespace_suffixes():
@@ -204,6 +260,63 @@ def test_in_ranges():
     assert dl.in_ranges(b, [(12, 20)])
     assert dl.in_ranges(b, [(1, 10)])
     assert not dl.in_ranges(b, [(1, 9), (13, 30)])
+
+
+def test_scan_declared_names_includes_package_and_core_module_names(tmp_path, monkeypatch):
+    (tmp_path / "Proj").mkdir()
+    (tmp_path / "Proj" / "A.lean").write_text("def a := 1\n", encoding="utf-8")
+    pkg = tmp_path / ".lake" / "packages" / "mathlib" / "Mathlib" / "Data"
+    pkg.mkdir(parents=True)
+    (pkg / "Nat.lean").write_text(
+        "namespace Nat\ntheorem foo : True := trivial\nend Nat\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(dl, "lean_core_src", lambda root: None)
+    names = dl.scan_declared_names(tmp_path)
+    assert {"Proj.A", "Mathlib.Data.Nat", "Data", "Nat.foo", "foo", "a"} <= names
+
+
+def test_base_scope_words_come_from_the_whole_file(tmp_path):
+    def git(*a):
+        subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    f = tmp_path / "A.lean"
+    f.write_text(
+        "/-- Mentions `gone` in an old docstring. -/\ntheorem old : True := trivial\n",
+        encoding="utf-8",
+    )
+    git("add", "A.lean")
+    git("commit", "-q", "-m", "base")
+    f.write_text(
+        f.read_text(encoding="utf-8") + "\n/-- Also `gone`. -/\ntheorem new : True := trivial\n",
+        encoding="utf-8",
+    )
+    blocks = dl.lint(tmp_path, ["A.lean"], base="HEAD", max_line=100, name_index=set())
+    assert [b.decl_name for b in blocks] == ["new"]
+    assert "unresolved-ref" in _codes(blocks[0])  # the untouched docstring is not code
+
+
+def test_base_scope_includes_renamed_files(tmp_path):
+    def git(*a):
+        subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    (tmp_path / "A.lean").write_text(
+        "/-- Old. -/\ntheorem old : True := trivial\n", encoding="utf-8"
+    )
+    git("add", "A.lean")
+    git("commit", "-q", "-m", "base")
+    git("mv", "A.lean", "B.lean")
+    (tmp_path / "B.lean").write_text(
+        "/-- Old. -/\ntheorem old : True := trivial\n/-- New. -/\ntheorem new : True := trivial\n",
+        encoding="utf-8",
+    )
+    git("add", "-A")
+    assert dl.git_changed_files(tmp_path, "HEAD") == ["B.lean"]
 
 
 def test_base_scope_end_to_end(tmp_path):
