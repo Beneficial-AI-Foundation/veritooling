@@ -372,16 +372,22 @@ def decl_name(kind: str, captured: str | None, line: str) -> str | None:
     return None
 
 
-def decl_signature(lines: list[str], decl_line: int, max_lines: int = 40) -> str:
+def decl_signature(code_lines: list[str], decl_line: int, max_lines: int = 40) -> str:
     """The declaration text from its first line up to the `:=` / `where` / `by` that starts
-    the body. Approximate; used only for binder names and restatement heuristics."""
+    the body. Approximate; used only for binder names and restatement heuristics.
+
+    Takes the view with comments, docstrings and literals already blanked, and must: slicing
+    raw source from `decl_line` can start *inside* a comment, when a multi-line docstring
+    closes on the declaration's line (`… `gamma`. -/ theorem t : True := trivial`). There is
+    then no `/--` left for `code_only` to recognize, the docstring's own text is read as the
+    signature, and every identifier in it matches the statement by construction."""
     out: list[str] = []
-    for k in range(decl_line - 1, min(decl_line - 1 + max_lines, len(lines))):
-        line = lines[k]
+    for k in range(decl_line - 1, min(decl_line - 1 + max_lines, len(code_lines))):
+        line = code_lines[k]
         out.append(line)
         if ":=" in line or re.search(r"\b(where|by)\s*$", line):
             break
-    return code_only("\n".join(out))
+    return "\n".join(out)
 
 
 def binder_names(signature: str) -> set[str]:
@@ -565,7 +571,14 @@ def check_block(
     name_index: set[str] | None,
     file_words: set[str],
     name_suffixes: set[str] | None = None,
+    code_lines: list[str] | None = None,
 ) -> None:
+    # `lines` is the raw source, which `long-line` must measure; `code_lines` is the same file
+    # with comments, docstrings and literals blanked, which `decl_signature` must read. The
+    # caller passes it to avoid a second scan per file; deriving it here keeps the checks
+    # correct for callers that do not.
+    if code_lines is None:
+        code_lines = code_only("\n".join(lines)).split("\n")
     # The closing line is measured up to `-/` only: a declaration that follows it
     # (`/-- doc -/ theorem t …`) is not the docstring's line length.
     raw_lines = lines[block.start - 1 : block.end]
@@ -617,12 +630,12 @@ def check_block(
             f"{len(conn)} of so/hence/therefore/thus; each must be a real implication",
         )
 
+    sig = decl_signature(code_lines, block.decl_line) if block.decl_line else ""
+
     if block.decl_line and block.decl_kind in ("theorem", "lemma", "def", "abbrev"):
-        sig = decl_signature(lines, block.decl_line)
         _check_restates_decl(block, sig)
 
     if name_index is not None:
-        sig = decl_signature(lines, block.decl_line) if block.decl_line else ""
         _check_refs(block, sig, name_index, file_words, name_suffixes)
 
 
@@ -661,8 +674,8 @@ def _check_restates_decl(block: Block, signature: str) -> None:
             "restates-decl",
             "warn",
             block.start,
-            f"{int(overlap * 100)}% of its identifiers are the statement's; says nothing the type"
-            " does not",
+            f"{int(overlap * 100)}% of its identifiers are the declaration's; says nothing the"
+            " code does not",
         )
 
 
@@ -704,6 +717,39 @@ def code_words(source: str) -> set[str]:
 
 # --------------------------------------------------------------------------- scope
 
+# Flags that make `git diff` a machine interface rather than a display. Without them a
+# repository or user setting silently empties the block list, and every docstring on the
+# branch escapes review: `color.ui` puts escapes before the `@@`, `diff.external` and a
+# `textconv` filter replace the unified diff wholesale, and `*.lean -diff` in
+# `.gitattributes` (which travels with the repository) reports the file as binary.
+_GIT_PLUMBING = ("--no-color", "--no-ext-diff", "--no-textconv", "--text")
+
+
+def git_resolve(root: Path, base: str) -> tuple[str | None, str]:
+    """`(commit, "")` for the commit `base` names, or `(None, reason)`. Checked before the
+    diffs so an unknown ref, a `--root` outside any repository, or a value git would read as
+    an option is a reported input error instead of a traceback or an empty block list. The
+    resolved id is what the diffs are given, which is also why they cannot be option-injected;
+    `--end-of-options` covers this call itself."""
+    out = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            f"{base}^{{commit}}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    commit = out.stdout.strip()
+    if out.returncode == 0 and commit:
+        return commit, ""
+    return None, out.stderr.strip() or f"not a commit: {base}"
+
 
 def git_changed_files(root: Path, base: str) -> list[str]:
     """The `.lean` files added, modified or renamed since `base`, relative to `root`.
@@ -719,6 +765,7 @@ def git_changed_files(root: Path, base: str) -> list[str]:
             "--name-only",
             "-z",
             "--relative",
+            *_GIT_PLUMBING,
             "--diff-filter=AMR",
             base,
             "--",
@@ -755,7 +802,7 @@ def git_touched_ranges(root: Path, base: str, rel: str) -> list[tuple[int, int]]
     rather than as rename metadata with no hunks: a renamed file contributes all of its
     blocks, and one renamed and then edited contributes the untouched docstrings too."""
     out = subprocess.run(
-        ["git", "-C", str(root), "diff", "-U0", "--no-renames", base, "--", rel],
+        ["git", "-C", str(root), "diff", "-U0", "--no-renames", *_GIT_PLUMBING, base, "--", rel],
         capture_output=True,
         text=True,
         check=True,
@@ -814,6 +861,7 @@ def lint(
             ranges = git_touched_ranges(root, base, rel)
             file_blocks = [b for b in file_blocks if in_ranges(b, ranges)]
         lines = source.split("\n")
+        code_lines = code_only(source).split("\n") if file_blocks else []
         for b in file_blocks:
             check_block(
                 b,
@@ -822,6 +870,7 @@ def lint(
                 name_index=name_index,
                 file_words=words,
                 name_suffixes=suffixes,
+                code_lines=code_lines,
             )
         blocks.extend(file_blocks)
     return blocks
@@ -893,13 +942,26 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     root = Path(args.root).resolve()
+    # `resolve()` does not check that anything is there, and `rglob` over a missing directory
+    # yields nothing, so without this a typo in `--root` reads as a project with no docstrings.
+    if not root.is_dir():
+        print(f"error: --root {args.root}: not a directory", file=sys.stderr)
+        return 2
+
+    base = args.base
+    if base is not None:
+        base, why = git_resolve(root, base)
+        if base is None:
+            print(f"error: --base {args.base}: {why}", file=sys.stderr)
+            return 2
+
     named = True  # the scope names its files, rather than discovering them
     if args.files:
         files = args.files
         scope_desc = {"files": files}
-    elif args.base:
-        files = git_changed_files(root, args.base)
-        scope_desc = {"base": args.base}
+    elif base is not None:
+        files = git_changed_files(root, base)
+        scope_desc = {"base": args.base, "commit": base}
     else:
         files = project_files(root, args.exclude)
         scope_desc = {"all": True}
@@ -924,7 +986,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"error: --probe {args.probe}: {e}", file=sys.stderr)
                 return 2
 
-    blocks = lint(root, files, base=args.base, max_line=args.max_line, name_index=index)
+    blocks = lint(root, files, base=base, max_line=args.max_line, name_index=index)
 
     if args.format == "json":
         if args.only_flagged:

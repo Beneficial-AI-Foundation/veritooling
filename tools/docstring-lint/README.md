@@ -19,10 +19,12 @@ python3 docstring_lint.py --root path/to/project --base origin/main
 python3 docstring_lint.py --files Foo/Bar.lean Foo/Baz.lean
 python3 docstring_lint.py --all --exclude docs/
 
-# machine-readable, for the rubric pass; CI annotations; fail on errors
+# machine-readable, for the rubric pass
 python3 docstring_lint.py --base origin/main --format json --only-flagged > blocks.json
 python3 docstring_lint.py --base origin/main --format github
-python3 docstring_lint.py --base origin/main --strict
+
+# after applying the review's edits: did a replacement break the rubric's limit?
+python3 docstring_lint.py --files <edited files> --strict
 ```
 
 Exactly one of `--base`, `--files`, `--all` is required. `--base` takes any git ref and keeps a
@@ -33,6 +35,10 @@ docstring selects it too. The per-file diff runs with
 all of its blocks, while an edited file contributes only the docstrings the change touched.
 The file list is read with `--relative -z`, so `--root` may be a subdirectory of the
 repository (files outside it are not linted) and a path with non-ASCII bytes arrives intact.
+`--base` is resolved to a commit id with `git rev-parse` before any diff runs, and both diffs
+pass `--no-color --no-ext-diff --no-textconv --text`, because the hunk headers are parsed:
+`color.ui`, `diff.external`, a `textconv` filter or `*.lean -diff` in `.gitattributes` would
+otherwise reshape the output, select no blocks, and report a clean branch.
 
 Blocks are found by a scanner that tracks ordinary `/- -/` comments, `--` line comments,
 strings — plain, raw (`r#"…"#`, ending only at the matching `"#`) and character literals
@@ -46,7 +52,7 @@ with its attributes (`@[simp] theorem t …`) still attaches.
 
 | code | severity | what it flags |
 |---|---|---|
-| `long-line` | error | a docstring line over the limit, counted in characters, the closing line only up to `-/` (`--max-line`, default 100) |
+| `long-line` | error | a docstring line over the limit, counted in characters, the closing line only up to `-/` (`--max-line`, default 100). Not a quality criterion: it exists to check replacement text after a review is applied, see below |
 | `unresolved-ref` | warn | a backticked identifier that names nothing: not a declaration in the project, its Lake packages or the Lean core sources, not a module of any of those, not a binder of the declaration, and not a word in the project's code (comments, docstrings and strings excluded) |
 | `trivial` | warn | three words or fewer, backticked names counted, on a `theorem`, `lemma`, `def` or `abbrev`; fields, constructors, structures and instances are exempt |
 | `name-restated` | warn | the docstring is the declaration name spelled out |
@@ -57,10 +63,24 @@ with its attributes (`@[simp] theorem t …`) still attaches.
 | `connective` | info | occurrences of so / hence / therefore / thus, each of which must be a real implication |
 
 Severity `error` is for facts, `warn` for strong heuristics, `info` for things the rubric pass
-should look at but that are often fine. `--strict` exits 1 only on errors. Exit 2 is a bad
-input rather than a finding: a file named in `--files`, a file git reported as changed for
+should look at but that are often fine.
+
+`--strict` (exit 1 on an `error` finding, which today means only `long-line`) is meant for one
+job: after the review's edits are applied, checking that no replacement broke the rubric's
+"lines ≤ 100 characters" rule. It is not a CI gate on a branch's docstrings. Most of what this
+tool reports is a heuristic feeding a judgment pass, and `long-line` is not a docstring-quality
+criterion at all. For project-wide style enforcement use Mathlib's `linter.style.longLine`
+instead, which runs during `lake build`, is scoped by `set_option`, and exempts lines holding a
+URL; it is already on in any project setting `linter.mathlibStandardSet`. The check here stays
+because that linter exempts URLs and is often switched off per file, so it does not catch an
+over-long replacement this tool's own consumers paste in.
+
+Exit 2 is a bad input rather than a finding: a `--root` that is not a directory, a `--base`
+git cannot resolve to a commit, a file named in `--files`, a file git reported as changed for
 `--base`, or a `--probe` extract that cannot be read. Files merely discovered by `--all` are
-skipped on a read error, since the tree may hold anything.
+skipped on a read error, since the tree may hold anything. The scope is deliberately loud
+about these: a run that silently lints nothing is a branch whose docstrings never reach the
+review.
 
 `unresolved-ref` is what a rename leaves behind. Names are resolved against a regex scan of
 every declaration (`theorem`, `def`, `structure`, …, short and namespace-qualified, with

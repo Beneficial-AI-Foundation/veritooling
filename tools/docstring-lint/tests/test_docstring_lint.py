@@ -4,6 +4,7 @@ import json
 import subprocess
 
 import docstring_lint as dl
+import pytest
 
 SAMPLE = """\
 /-!
@@ -246,6 +247,17 @@ def test_same_line_docstring_is_not_part_of_the_signature():
     text = "/-- `alpha` `beta` `gamma` -/ theorem t : True := trivial\n"
     out = _lint(text, index=set())
     assert "restates-decl" not in _codes(out["t"])
+
+
+def test_multiline_docstring_closing_beside_the_declaration_is_not_the_signature():
+    # Slicing raw source from the declaration line starts inside the comment, so there is no
+    # `/--` left to recognize and the docstring reads as its own statement: 100% overlap, always.
+    text = (
+        "/-- A useful calculation\n"
+        "using `alpha`, `beta`, and `gamma`. -/ theorem exampleValue : True := trivial\n"
+    )
+    out = _lint(text, index=set())
+    assert "restates-decl" not in _codes(out["exampleValue"])
 
 
 def test_restates_decl_applies_to_defs():
@@ -613,6 +625,78 @@ def test_base_scope_in_a_git_subdirectory_and_with_a_quoted_path(tmp_path, capsy
     assert rc == 0
     out = capsys.readouterr().out
     assert "2 blocks" in out and "α.lean" in out and "B.lean" not in out
+
+
+def _repo_with_a_long_docstring(tmp_path):
+    """A repository whose worktree adds an overlong docstring since HEAD."""
+
+    def git(*a):
+        subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    f = tmp_path / "A.lean"
+    f.write_text("/--\nshort\n-/\ntheorem t : True := trivial\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "base")
+    f.write_text(f"/--\n{'y' * 120}\n-/\ntheorem t : True := trivial\n", encoding="utf-8")
+    return git
+
+
+@pytest.mark.parametrize(
+    "setting",
+    [
+        ("config", "color.ui", "always"),  # colour escapes before the `@@`
+        ("config", "diff.external", "/bin/true"),  # an external differ emits no hunks
+        ("attributes", "*.lean -diff"),  # the file is reported as binary
+    ],
+    ids=["color.ui", "diff.external", "gitattributes"],
+)
+def test_base_scope_survives_git_display_settings(tmp_path, setting):
+    # Each of these reshapes `git diff` so the anchored hunk regex matches nothing, and every
+    # docstring on the branch would silently escape review.
+    git = _repo_with_a_long_docstring(tmp_path)
+    if setting[0] == "attributes":
+        (tmp_path / ".gitattributes").write_text(setting[1] + "\n", encoding="utf-8")
+    else:
+        git(*setting)
+    blocks = dl.lint(tmp_path, ["A.lean"], base="HEAD", max_line=100, name_index=None)
+    assert [b.decl_name for b in blocks] == ["t"]
+    assert "long-line" in _codes(blocks[0])
+
+
+def test_main_rejects_a_nonexistent_root(tmp_path, capsys):
+    rc = dl.main(["--root", str(tmp_path / "gone"), "--all", "--no-resolve", "--strict"])
+    assert rc == 2
+    assert "not a directory" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "base", ["origin/nope", "--no-patch"], ids=["unknown-ref", "option-shaped"]
+)
+def test_main_reports_an_unresolvable_base(tmp_path, capsys, base):
+    # An unknown ref used to raise CalledProcessError with git's message swallowed, and a value
+    # git reads as an option used to empty the block list and exit 0. `--base=` because argparse
+    # would otherwise take `--no-patch` for one of its own options.
+    _repo_with_a_long_docstring(tmp_path)
+    rc = dl.main(["--root", str(tmp_path), f"--base={base}", "--no-resolve"])
+    assert rc == 2
+    assert base in capsys.readouterr().err
+
+
+def test_main_reports_a_base_outside_a_repository(tmp_path, capsys):
+    (tmp_path / "A.lean").write_text("/-- Doc. -/\ntheorem t : True := trivial\n", encoding="utf-8")
+    rc = dl.main(["--root", str(tmp_path), "--base", "HEAD", "--no-resolve"])
+    assert rc == 2
+    assert "not a git repository" in capsys.readouterr().err
+
+
+def test_git_resolve_returns_the_commit_the_diffs_are_given(tmp_path):
+    _repo_with_a_long_docstring(tmp_path)
+    commit, why = dl.git_resolve(tmp_path, "HEAD")
+    assert why == "" and commit is not None and len(commit) == 40
+    assert dl.git_resolve(tmp_path, "origin/nope") == (None, "not a commit: origin/nope")
 
 
 # --------------------------------------------------------------------------- output
