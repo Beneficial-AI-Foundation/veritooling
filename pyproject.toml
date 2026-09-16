@@ -8,4 +8,8 @@ line-length = 100
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
-testpaths = ["tools/verification-progress-history/tests", "actions/tests"]
+testpaths = [
+    "tools/verification-progress-history/tests",
+    "tools/docstring-lint/tests",
+    "actions/tests",
+]

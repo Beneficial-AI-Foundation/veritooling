@@ -1,0 +1,75 @@
+# docstring-lint
+
+The mechanical half of a docstring review for Lean 4 projects. It enumerates the `/-- … -/`
+and `/-! … -/` blocks in scope and reports what needs no judgment; the judgment half is
+[`RUBRIC.md`](RUBRIC.md), applied by a reviewer to the JSON this tool emits.
+
+Standard library only, Python 3.10+. Runs in seconds on a project with a few thousand
+declarations, including the scan of `.lake/packages` and the Lean core sources.
+
+## Usage
+
+```sh
+# only the blocks a branch added or touched
+python3 docstring_lint.py --root path/to/project --base origin/main
+
+# given files, or the whole project
+python3 docstring_lint.py --files Foo/Bar.lean Foo/Baz.lean
+python3 docstring_lint.py --all --exclude docs/
+
+# machine-readable, for the rubric pass; CI annotations; fail on errors
+python3 docstring_lint.py --base origin/main --format json --only-flagged > blocks.json
+python3 docstring_lint.py --base origin/main --format github
+python3 docstring_lint.py --base origin/main --strict
+```
+
+Exactly one of `--base`, `--files`, `--all` is required. `--base` takes any git ref and keeps a
+block when one of its lines is in the diff's added ranges, so a new file contributes all of its
+blocks and an edited file only the docstrings the change touched.
+
+## Checks
+
+| code | severity | what it flags |
+|---|---|---|
+| `long-line` | error | a docstring line over the limit, counted in characters (`--max-line`, default 100) |
+| `unresolved-ref` | warn | a backticked identifier that names nothing: not a declaration in the project, its Lake packages or the Lean core sources, not a module, not a binder of the declaration, and not a word anywhere in the project's code |
+| `trivial` | warn | three words or fewer on a theorem, lemma or definition (structure fields are exempt) |
+| `name-restated` | warn | the docstring is the declaration name spelled out |
+| `restates-decl` | warn | a one- or two-line docstring whose identifiers are almost all the statement's own |
+| `proof-restated` | warn | a `Proof:` line |
+| `question-form` | info | opens with "Why …", answering a question the reader has not met |
+| `paren` | info | a parenthesised phrase in the prose (backtick spans excluded) |
+| `connective` | info | occurrences of so / hence / therefore / thus, each of which must be a real implication |
+
+Severity `error` is for facts, `warn` for strong heuristics, `info` for things the rubric pass
+should look at but that are often fine. `--strict` exits 1 only on errors.
+
+`unresolved-ref` is what a rename leaves behind. Names are resolved against a regex scan of
+every declaration (`theorem`, `def`, `structure`, …, short and namespace-qualified) in the
+project, `.lake/packages`, and `~/.elan/toolchains/<pinned>/src/lean` when `lean-toolchain`
+pins an installed toolchain. A probe-lean extract (`--probe extract.json`) adds its exact
+declaration list. Tokens containing superscripts or subscripts are treated as notation and
+skipped, as are Lean keywords and common tactics. `--no-resolve` skips the check;
+`--no-packages` skips the package scan.
+
+## Output
+
+- `text` (default): one line per finding, `path:line: [severity] code: message (declaration)`,
+  then a count.
+- `json`: `{"schema": "veritooling/docstring-lint", "blocks": [...]}`, every block in scope with
+  its text, the declaration it documents, and its findings. `--only-flagged` drops clean blocks.
+- `github`: `::warning file=…,line=…::code: message` annotations (`::error` for errors).
+
+## With the rubric
+
+The intended workflow is: run with `--format json`, hand the blocks to a reviewer working from
+`RUBRIC.md`, collect KEEP / REPHRASE / DELETE / WRONG verdicts in the report format the rubric
+specifies, then apply the accepted edits. The tool catches the stale names and long lines; the
+rubric catches docstrings that describe a proof route the term does not take, credit the
+wrong lemma, or carry the argument in a parenthesis.
+
+## Tests
+
+```sh
+pytest -q tools/docstring-lint/tests
+```

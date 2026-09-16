@@ -1,0 +1,615 @@
+#!/usr/bin/env python3
+"""docstring-lint: the mechanical half of a Lean 4 docstring review.
+
+Enumerates the `/-- … -/` and `/-! … -/` blocks of a Lean project (the whole tree, a list of
+files, or only the blocks touched since a git ref) and reports what needs no judgment: lines
+over the column limit, backticked identifiers that resolve to no declaration, docstrings that
+restate the declaration or are trivially short, `Proof:` lines, and the parentheses and
+"so/hence" connectives a human or LLM pass should look at. The judgment criteria live in
+RUBRIC.md next to this file; the JSON output is the input to that pass.
+
+Standard library only, Python 3.10+.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+
+SCHEMA = "veritooling/docstring-lint"
+SCHEMA_VERSION = 1
+
+DECL_KINDS = (
+    "theorem",
+    "lemma",
+    "def",
+    "abbrev",
+    "structure",
+    "class",
+    "inductive",
+    "instance",
+    "axiom",
+    "opaque",
+    "example",
+    "macro",
+    "syntax",
+    "notation",
+    "elab",
+)
+_MODIFIERS = r"(?:(?:private|protected|noncomputable|nonrec|partial|unsafe|scoped|local)\s+)*"
+DECL_RE = re.compile(
+    r"^\s*(?:@\[[^\]]*\]\s*)*" + _MODIFIERS + r"(" + "|".join(DECL_KINDS) + r")\b\s*([^\s({\[:]+)?"
+)
+# Lines that may sit between a docstring and its declaration.
+_SKIP_BEFORE_DECL = re.compile(r"^\s*(@\[|--|set_option\b|open\b.*\bin\s*$|attribute\b)")
+_FIELD_RE = re.compile(r"^\s+([A-Za-z_][\w'!?]*)\s*:(?!=)")
+_NAMESPACE_RE = re.compile(r"^\s*namespace\s+([\w.'’]+)")
+_END_RE = re.compile(r"^\s*end\b")
+_BACKTICK_RE = re.compile(r"`([^`\n]+)`")
+_IDENT_RE = re.compile(r"^[A-Za-z_Ͱ-Ͽ][\w'!?.Ͱ-Ͽ₀-₟₀-₉]*$")
+_BINDER_RE = re.compile(r"[(\[{⦃]\s*([^:()\[\]{}⦃⦄]+?)\s*:")
+_CONNECTIVE_RE = re.compile(r"\b(so|hence|therefore|thus)\b", re.IGNORECASE)
+_PAREN_RE = re.compile(r"\(([^()]*)\)")
+_PROOF_RE = re.compile(r"^\s*\**\s*Proof\b", re.IGNORECASE)
+_WORD_RE = re.compile(r"[A-Za-z_][\w']*")
+# Superscripts and subscripts mark math notation (`x¹²⁸`, `J₀`), not identifiers to resolve.
+_NOTATION_RE = re.compile(r"[\u00b2\u00b3\u00b9\u1d2c-\u1d6a\u2070-\u209f]")
+
+# Backticked tokens that are Lean vocabulary, not declarations to resolve.
+LEAN_WORDS = frozenset(
+    """
+    by simp rfl sorry decide omega linarith positivity norm_num exact refine intro rcases obtain
+    rw simpa unfold fun let have show calc match with do return pure bind if then else
+    native_decide exact_mod_cast push_cast ring field_simp aesop grind norm_cast nlinarith ext
+    funext congr constructor use exists rintro cases induction apply trivial assumption
+    contradiction exfalso subst split and_intros gcongr bound tauto
+    Prop Type Sort Nat Int Bool List Option Fin Finset Set Fintype BitVec String Unit
+    true false none some id Id IO ℕ ℤ ℝ ℚ
+    theorem lemma def abbrev structure class inductive instance axiom opaque example
+    namespace section variable open import private protected noncomputable
+    """.split()
+)
+
+Severity = str  # "error" | "warn" | "info"
+
+
+@dataclass
+class Finding:
+    code: str
+    severity: Severity
+    line: int
+    message: str
+
+
+@dataclass
+class Block:
+    path: str
+    start: int
+    end: int
+    kind: str  # "decl" (/--) or "module" (/-!)
+    text: str  # docstring body without the comment markers
+    decl_kind: str | None = None
+    decl_name: str | None = None
+    decl_line: int | None = None
+    findings: list[Finding] = field(default_factory=list)
+
+    def add(self, code: str, severity: Severity, line: int, message: str) -> None:
+        self.findings.append(Finding(code, severity, line, message))
+
+
+# --------------------------------------------------------------------------- parsing
+
+
+def _scan_block_end(lines: list[str], start: int, col: int) -> int:
+    """Index of the line holding the `-/` that closes the comment opened at (start, col).
+
+    Lean block comments nest, so `/-` inside the docstring raises the depth."""
+    depth = 0
+    i, j = start, col
+    while i < len(lines):
+        line = lines[i]
+        while j < len(line) - 1:
+            two = line[j : j + 2]
+            if two == "/-":
+                depth += 1
+                j += 2
+                continue
+            if two == "-/":
+                depth -= 1
+                j += 2
+                if depth == 0:
+                    return i
+                continue
+            j += 1
+        i += 1
+        j = 0
+    return len(lines) - 1
+
+
+def _body(lines: list[str], start: int, end: int) -> str:
+    raw = "\n".join(lines[start : end + 1])
+    raw = raw.strip()
+    for opener in ("/--", "/-!"):
+        if raw.startswith(opener):
+            raw = raw[len(opener) :]
+            break
+    if raw.endswith("-/"):
+        raw = raw[:-2]
+    return raw.strip()
+
+
+def parse_blocks(path: str, source: str) -> list[Block]:
+    """All docstring blocks of one file, each attached to the declaration that follows it."""
+    lines = source.split("\n")
+    blocks: list[Block] = []
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].lstrip()
+        if stripped.startswith("/--") or stripped.startswith("/-!"):
+            col = len(lines[i]) - len(stripped)
+            end = _scan_block_end(lines, i, col)
+            kind = "module" if stripped.startswith("/-!") else "decl"
+            block = Block(path, i + 1, end + 1, kind, _body(lines, i, end))
+            if kind == "decl":
+                _attach_decl(block, lines, end + 1)
+            blocks.append(block)
+            i = end + 1
+            continue
+        i += 1
+    return blocks
+
+
+def _attach_decl(block: Block, lines: list[str], from_idx: int) -> None:
+    """Attach the first declaration within a few lines after the block, skipping attributes,
+    line comments (anchors) and `set_option` lines."""
+    for k in range(from_idx, min(from_idx + 8, len(lines))):
+        line = lines[k]
+        if not line.strip() or _SKIP_BEFORE_DECL.match(line):
+            continue
+        m = DECL_RE.match(line)
+        if m:
+            block.decl_kind = m.group(1)
+            block.decl_name = m.group(2)
+            block.decl_line = k + 1
+            return
+        m = _FIELD_RE.match(line)
+        if m:
+            block.decl_kind = "field"
+            block.decl_name = m.group(1)
+            block.decl_line = k + 1
+        return
+
+
+def decl_signature(lines: list[str], decl_line: int, max_lines: int = 40) -> str:
+    """The declaration text from its first line up to the `:=` / `where` / `by` that starts
+    the body. Approximate; used only for binder names and restatement heuristics."""
+    out: list[str] = []
+    for k in range(decl_line - 1, min(decl_line - 1 + max_lines, len(lines))):
+        line = lines[k]
+        out.append(line)
+        if ":=" in line or re.search(r"\b(where|by)\s*$", line):
+            break
+    return "\n".join(out)
+
+
+def binder_names(signature: str) -> set[str]:
+    names: set[str] = set()
+    for m in _BINDER_RE.finditer(signature):
+        for tok in m.group(1).split():
+            if tok and not tok.startswith(("@", "_")):
+                names.add(tok)
+    return names
+
+
+# --------------------------------------------------------------------------- name index
+
+
+def scan_declared_names(root: Path, include_packages: bool = True) -> set[str]:
+    """Names a backticked token may legitimately refer to: every declaration under `root`, its
+    Lake packages and the Lean core sources of the pinned toolchain (short and
+    namespace-qualified), module names and their components, and every identifier-like word in
+    the project's own code. The last set makes the check project-local: a token that appears
+    nowhere in the code is what a rename leaves behind."""
+    names: set[str] = set()
+    for path in root.rglob("*.lean"):
+        if ".lake" in path.parts:
+            continue
+        rel = path.relative_to(root).with_suffix("")
+        names.update(rel.parts)
+        names.add(".".join(rel.parts))
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        _collect_names(text, names)
+        names.update(code_words(text, parse_blocks(str(rel), text)))
+    others: list[Path] = []
+    pkgs = root / ".lake" / "packages"
+    if include_packages and pkgs.is_dir():
+        others.extend(p for p in pkgs.iterdir() if p.is_dir())
+    core = lean_core_src(root)
+    if core is not None:
+        others.append(core)
+    for base in others:
+        names.add(base.name)
+        for path in base.rglob("*.lean"):
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            _collect_names(text, names)
+    return names
+
+
+def lean_core_src(root: Path) -> Path | None:
+    """`~/.elan/toolchains/<toolchain>/src/lean` for the toolchain pinned in `lean-toolchain`,
+    if elan has it installed; core declarations (`Init`, `Lean`, `Std`) are not Lake packages."""
+    pin = root / "lean-toolchain"
+    if not pin.is_file():
+        return None
+    name = pin.read_text(encoding="utf-8").strip()
+    mangled = name.replace("/", "--").replace(":", "---")
+    cand = Path.home() / ".elan" / "toolchains" / mangled / "src" / "lean"
+    return cand if cand.is_dir() else None
+
+
+def _collect_names(text: str, names: set[str]) -> None:
+    ns: list[str] = []
+    for line in text.split("\n"):
+        m = _NAMESPACE_RE.match(line)
+        if m:
+            ns.append(m.group(1))
+            continue
+        if _END_RE.match(line) and ns:
+            ns.pop()
+            continue
+        m = DECL_RE.match(line)
+        if m and m.group(2):
+            name = m.group(2)
+            names.add(name)
+            if ns:
+                names.add(".".join(ns) + "." + name)
+
+
+def load_probe_names(path: Path) -> set[str]:
+    """Declaration names from a probe-lean `extract` JSON (`data` keys `probe:<Name>`)."""
+    data = json.loads(path.read_text(encoding="utf-8")).get("data", {})
+    return {k.split(":", 1)[1] for k in data if k.startswith("probe:")}
+
+
+def resolves(token: str, index: set[str]) -> bool:
+    if token in index:
+        return True
+    for name in index:
+        if name.endswith("." + token) or token.endswith("." + name):
+            return True
+    return False
+
+
+# --------------------------------------------------------------------------- checks
+
+
+def _prose(text: str) -> str:
+    """Docstring text with backtick spans and fenced code blanked out, offsets preserved."""
+
+    def blank(m: re.Match[str]) -> str:
+        return re.sub(r"[^\n]", " ", m.group(0))
+
+    text = re.sub(r"```.*?```", blank, text, flags=re.DOTALL)
+    return _BACKTICK_RE.sub(blank, text)
+
+
+def _ident_tokens(text: str) -> set[str]:
+    return {w for w in _WORD_RE.findall(text) if len(w) >= 3}
+
+
+def check_block(
+    block: Block,
+    lines: list[str],
+    *,
+    max_line: int,
+    name_index: set[str] | None,
+    file_words: set[str],
+) -> None:
+    raw_lines = lines[block.start - 1 : block.end]
+    for off, line in enumerate(raw_lines):
+        if len(line) > max_line:
+            block.add(
+                "long-line",
+                "error",
+                block.start + off,
+                f"{len(line)} characters, limit {max_line}",
+            )
+
+    prose = _prose(block.text)
+    words = _WORD_RE.findall(prose)
+
+    if (
+        block.kind == "decl"
+        and block.decl_kind not in (None, "field")
+        and len(words) <= 3
+        and not _BACKTICK_RE.search(block.text)
+    ):
+        block.add("trivial", "warn", block.start, "three words or fewer")
+
+    if block.decl_name and _restates_name(prose, block.decl_name):
+        block.add("name-restated", "warn", block.start, "the docstring is the name, spelled out")
+
+    if _PROOF_RE.search(block.text) or re.search(r"\n\s*Proof:", block.text):
+        block.add("proof-restated", "warn", block.start, "a `Proof:` line mirrors the proof body")
+
+    if re.match(r"\s*Why\b", prose):
+        block.add("question-form", "info", block.start, "answers a question the reader has not met")
+
+    for m in _PAREN_RE.finditer(prose):
+        inner = m.group(1).strip()
+        if not inner:
+            continue
+        line = block.start + block.text[: m.start()].count("\n")
+        block.add("paren", "info", line, f"({_short(inner)})")
+
+    conn = _CONNECTIVE_RE.findall(prose)
+    if conn:
+        block.add(
+            "connective",
+            "info",
+            block.start,
+            f"{len(conn)} of so/hence/therefore/thus; each must be a real implication",
+        )
+
+    if block.decl_line and block.decl_kind in ("theorem", "lemma"):
+        sig = decl_signature(lines, block.decl_line)
+        _check_restates_decl(block, sig)
+
+    if name_index is not None:
+        sig = decl_signature(lines, block.decl_line) if block.decl_line else ""
+        _check_refs(block, sig, name_index, file_words)
+
+
+def _short(s: str, n: int = 60) -> str:
+    s = " ".join(s.split())
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def _restates_name(prose: str, name: str) -> bool:
+    short = name.rsplit(".", 1)[-1]
+    parts = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", short).replace("_", " ").lower().split()
+    got = [w.lower() for w in _WORD_RE.findall(prose)]
+    return len(parts) >= 2 and got == parts
+
+
+def _check_restates_decl(block: Block, signature: str) -> None:
+    """Backticked identifiers (or, when fewer than three, every identifier-like word) of the
+    docstring measured against the statement's identifiers."""
+    doc_ids = {
+        t for t in (m.group(1).strip() for m in _BACKTICK_RE.finditer(block.text)) if len(t) >= 3
+    }
+    if len(doc_ids) < 3:
+        doc_ids = _ident_tokens(block.text)
+    if len(doc_ids) < 3:
+        return
+    sig_ids = _ident_tokens(signature)
+    overlap = len(doc_ids & sig_ids) / len(doc_ids)
+    if overlap >= 0.8 and len(block.text.split("\n")) <= 2:
+        block.add(
+            "restates-decl",
+            "warn",
+            block.start,
+            f"{int(overlap * 100)}% of its identifiers are the statement's; says nothing the type"
+            " does not",
+        )
+
+
+def _check_refs(block: Block, signature: str, index: set[str], file_words: set[str]) -> None:
+    binders = binder_names(signature)
+    seen: set[str] = set()
+    for m in _BACKTICK_RE.finditer(block.text):
+        tok = m.group(1).strip()
+        if tok in seen or not _IDENT_RE.match(tok) or len(tok) < 2 or _NOTATION_RE.search(tok):
+            continue
+        seen.add(tok)
+        if tok in LEAN_WORDS or tok in binders:
+            continue
+        last = tok.rsplit(".", 1)[-1]
+        if last in binders or tok in file_words or last in file_words:
+            continue
+        if resolves(tok, index):
+            continue
+        line = block.start + block.text[: m.start()].count("\n")
+        block.add("unresolved-ref", "warn", line, f"`{tok}` names no declaration found")
+
+
+def code_words(source: str, blocks: list[Block]) -> set[str]:
+    """Identifier-like words in the file's non-docstring lines (fields, local notation,
+    binders in `variable` lines): a backticked token found here is not a dangling reference."""
+    lines = source.split("\n")
+    doc = set()
+    for b in blocks:
+        doc.update(range(b.start - 1, b.end))
+    words: set[str] = set()
+    for i, line in enumerate(lines):
+        if i in doc:
+            continue
+        for tok in re.findall(r"[\w'!?.Ͱ-Ͽ₀-₟]+", line):
+            words.add(tok)
+            words.update(tok.split("."))
+    return words
+
+
+# --------------------------------------------------------------------------- scope
+
+
+def git_changed_files(root: Path, base: str) -> list[str]:
+    out = subprocess.run(
+        ["git", "-C", str(root), "diff", "--name-only", "--diff-filter=AM", base, "--", "*.lean"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return [line for line in out.split("\n") if line.strip()]
+
+
+_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+
+
+def added_ranges(diff_text: str) -> list[tuple[int, int]]:
+    """Inclusive 1-based line ranges added by a unified diff with zero context."""
+    ranges = []
+    for line in diff_text.split("\n"):
+        m = _HUNK_RE.match(line)
+        if not m:
+            continue
+        start = int(m.group(1))
+        count = int(m.group(2)) if m.group(2) is not None else 1
+        if count:
+            ranges.append((start, start + count - 1))
+    return ranges
+
+
+def git_added_ranges(root: Path, base: str, rel: str) -> list[tuple[int, int]]:
+    out = subprocess.run(
+        ["git", "-C", str(root), "diff", "-U0", base, "--", rel],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return added_ranges(out)
+
+
+def in_ranges(block: Block, ranges: list[tuple[int, int]]) -> bool:
+    return any(not (block.end < a or block.start > b) for a, b in ranges)
+
+
+def project_files(root: Path, excludes: list[str]) -> list[str]:
+    files = []
+    for p in sorted(root.rglob("*.lean")):
+        rel = p.relative_to(root).as_posix()
+        if ".lake/" in rel or rel.startswith(".") or any(x in rel for x in excludes):
+            continue
+        files.append(rel)
+    return files
+
+
+# --------------------------------------------------------------------------- driver
+
+
+def lint(
+    root: Path,
+    files: list[str],
+    *,
+    base: str | None,
+    max_line: int,
+    name_index: set[str] | None,
+) -> list[Block]:
+    blocks: list[Block] = []
+    for rel in files:
+        path = root / rel
+        try:
+            source = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        file_blocks = parse_blocks(rel, source)
+        if base is not None:
+            ranges = git_added_ranges(root, base, rel)
+            file_blocks = [b for b in file_blocks if in_ranges(b, ranges)]
+        words = code_words(source, file_blocks) if name_index is not None else set()
+        lines = source.split("\n")
+        for b in file_blocks:
+            check_block(b, lines, max_line=max_line, name_index=name_index, file_words=words)
+        blocks.extend(file_blocks)
+    return blocks
+
+
+def render_text(blocks: list[Block]) -> str:
+    out = []
+    n = 0
+    for b in blocks:
+        for f in b.findings:
+            n += 1
+            who = b.decl_name or ("module header" if b.kind == "module" else "?")
+            out.append(f"{b.path}:{f.line}: [{f.severity}] {f.code}: {f.message}  ({who})")
+    out.append(f"{len(blocks)} blocks, {n} findings")
+    return "\n".join(out)
+
+
+def render_github(blocks: list[Block]) -> str:
+    out = []
+    for b in blocks:
+        for f in b.findings:
+            level = "error" if f.severity == "error" else "warning"
+            out.append(f"::{level} file={b.path},line={f.line}::{f.code}: {f.message}")
+    return "\n".join(out)
+
+
+def render_json(blocks: list[Block], root: Path, scope: dict) -> str:
+    payload = {
+        "schema": SCHEMA,
+        "schema-version": SCHEMA_VERSION,
+        "root": str(root),
+        "scope": scope,
+        "blocks": [asdict(b) for b in blocks],
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=1)
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--root", default=".", help="Lean project root (default: cwd)")
+    scope = ap.add_mutually_exclusive_group(required=True)
+    scope.add_argument("--base", help="git ref: only blocks touched since this ref")
+    scope.add_argument("--files", nargs="+", help="files to lint, relative to root")
+    scope.add_argument("--all", action="store_true", help="every .lean file under root")
+    ap.add_argument("--exclude", action="append", default=[], help="path substring to skip")
+    ap.add_argument("--max-line", type=int, default=100, help="column limit (characters)")
+    ap.add_argument("--probe", type=Path, help="probe-lean extract JSON for name resolution")
+    ap.add_argument("--no-resolve", action="store_true", help="skip the unresolved-ref check")
+    ap.add_argument("--no-packages", action="store_true", help="do not scan .lake/packages")
+    ap.add_argument("--format", choices=("text", "json", "github"), default="text")
+    ap.add_argument(
+        "--only-flagged", action="store_true", help="JSON: drop blocks without findings"
+    )
+    ap.add_argument("--strict", action="store_true", help="exit 1 on any error-severity finding")
+    args = ap.parse_args(argv)
+
+    root = Path(args.root).resolve()
+    if args.files:
+        files = args.files
+        scope_desc = {"files": files}
+    elif args.base:
+        files = git_changed_files(root, args.base)
+        scope_desc = {"base": args.base}
+    else:
+        files = project_files(root, args.exclude)
+        scope_desc = {"all": True}
+    if args.exclude:
+        files = [f for f in files if not any(x in f for x in args.exclude)]
+
+    index: set[str] | None = None
+    if not args.no_resolve:
+        index = scan_declared_names(root, include_packages=not args.no_packages)
+        if args.probe:
+            index |= load_probe_names(args.probe)
+
+    blocks = lint(root, files, base=args.base, max_line=args.max_line, name_index=index)
+
+    if args.format == "json":
+        if args.only_flagged:
+            blocks = [b for b in blocks if b.findings]
+        print(render_json(blocks, root, scope_desc))
+    elif args.format == "github":
+        print(render_github(blocks))
+    else:
+        print(render_text(blocks))
+
+    if args.strict and any(f.severity == "error" for b in blocks for f in b.findings):
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
