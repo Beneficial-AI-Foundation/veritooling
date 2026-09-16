@@ -41,12 +41,22 @@ pass `--no-color --no-ext-diff --no-textconv --text`, because the hunk headers a
 otherwise reshape the output, select no blocks, and report a clean branch.
 
 Blocks are found by a scanner that tracks ordinary `/- -/` comments, `--` line comments,
-strings — plain, raw (`r#"…"#`, ending only at the matching `"#`) and character literals
-(`'"'`) — so a `/--` inside any of those is not a docstring, and a docstring closed on
-the same line as its declaration (`/-- doc -/ theorem t …`) is attached to it. Declarations are
-read from the same source with comments, docstrings and literals blanked, so an anchor or a note
-comment between a docstring and its declaration is skipped, and a declaration sharing a line
-with its attributes (`@[simp] theorem t …`) still attaches.
+strings (plain, raw `r#"…"#` ending only at the matching `"#`, and interpolated `s!"… {e} …"`
+whose `{…}` holds code with quotes of its own), character literals (`'"'`) and guillemet
+identifiers (`«…»`, which may spell anything), so a `/--` inside any of those is not a
+docstring, and a docstring closed on the same line as its declaration
+(`/-- doc -/ theorem t …`) is attached to it. Those forms matter beyond the line they sit on:
+a `"` read as opening a string, or a `/-` read as opening a comment, desynchronizes the
+scanner for the rest of the file and every later docstring stops being listed. Tests assert
+that a docstring *after* each form is still found, and two invariants (spans partition the
+source; blanking preserves length and newline count) are checked over every pair of these
+forms.
+
+Declarations are read from the same source with comments, docstrings and literals blanked, so
+an anchor or a note comment between a docstring and its declaration is skipped, and a
+declaration sharing a line with its attributes (`@[simp] theorem t …`) still attaches. A
+guillemet identifier is the one span kept verbatim in both views: it is code, and blanking it
+would lose the name `«my name»` declares.
 
 ## Checks
 
@@ -82,8 +92,17 @@ skipped on a read error, since the tree may hold anything. The scope is delibera
 about these: a run that silently lints nothing is a branch whose docstrings never reach the
 review.
 
-`unresolved-ref` is what a rename leaves behind. Names are resolved against a regex scan of
-every declaration (`theorem`, `def`, `structure`, …, short and namespace-qualified, with
+`unresolved-ref` is a candidate list, not a resolver, and it errs in both directions. It
+over-reports, because a backtick means "code font" and not "reference": on secure-messaging
+`--all` it raises 239 warnings over 137 distinct tokens, of which 27 hold a non-ASCII
+character and 65 more have the `X_y` shape of paper notation (`R_q`, `M_p`, `ε_v`, `Ω_η`),
+while most of the rest are protocol names from the source paper rather than Lean declarations
+(`header_encoder`, `ek_vector`, `Hdr`, `GHASH_H`). Genuine stale names are in there, which is
+the point, but they are a minority, so triage the list rather than treating it as a defect
+count. It also under-reports, because a name that ends in an indexed one resolves:
+`Totally.Bogus.Path.map` counts as resolved when `map` is declared anywhere.
+
+Names are resolved against a regex scan of every declaration (`theorem`, `def`, `structure`, …, short and namespace-qualified, with
 structure fields and inductive constructors as `field` and `Struct.field`, and the string
 literal that names a `syntax`, `macro`, `notation`, `infixl`, … declaration) in the project, `.lake/packages`, and `~/.elan/toolchains/<pinned>/src/lean` when `lean-toolchain`
 pins an installed toolchain. A probe-lean extract (`--probe extract.json`) adds its exact
@@ -98,6 +117,8 @@ skipped, as are Lean keywords and common tactics. `--no-resolve` skips the check
 - `json`: `{"schema": "veritooling/docstring-lint", "blocks": [...]}`, every block in scope with
   its text, the declaration it documents, and its findings. `--only-flagged` drops clean blocks.
 - `github`: `::warning file=…,line=…::code: message` annotations (`::error` for errors).
+  Paths are prefixed with `--root`'s path from the top of the git repository, since GitHub
+  resolves `file=` against the checkout root.
 
 ## With the rubric
 

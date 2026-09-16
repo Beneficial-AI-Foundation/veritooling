@@ -1,5 +1,6 @@
 """docstring_lint: parsing, each mechanical check, diff scoping and output formats."""
 
+import itertools
 import json
 import subprocess
 
@@ -136,6 +137,103 @@ def test_raw_string_ends_only_at_its_hash_delimiter():
     names = set()
     dl._collect_names(text, names)
     assert "fake" not in names and "css" in names
+
+
+# Valid Lean whose `"` or `/-` a naive scanner reads as opening something. Each desynchronizes
+# the scan for the rest of the file, so every later docstring stops being enumerated: the one
+# failure that silently removes work from the review rather than adding noise to it.
+DESYNC_FORMS = [
+    'def «quote"» := 0',
+    "def «/-» := 0",
+    'def r := s!"{"/-"}"',
+    'def s : String := r#"a "b /-- x -/ "#',
+    "def quote : Char := '\"'",
+]
+
+
+@pytest.mark.parametrize("form", DESYNC_FORMS, ids=lambda f: f.split(":=")[0].strip())
+def test_a_docstring_after_an_exotic_lexical_form_is_still_enumerated(form):
+    text = (
+        f"/-- First. -/\ndef a := 0\n{form}\n"
+        "/-- Second. -/\ndef b := 1\n/-- Third. -/\ndef c := 2\n"
+    )
+    assert [b.decl_name for b in _blocks(text)] == ["a", "b", "c"]
+
+
+def test_an_interpolated_string_does_not_invent_a_docstring():
+    text = 'def r := s!"{"/-- Fake. -/"}"\ndef u := 1\n'
+    assert _blocks(text) == []
+
+
+def test_interpolation_braces_may_hold_several_strings():
+    text = 'def r := s!"a {f (g "x") "y"} b"\n/-- Real. -/\ndef t := 1\n'
+    assert [b.decl_name for b in _blocks(text)] == ["t"]
+
+
+def test_a_guillemet_identifier_stays_in_the_code_view():
+    # It is a span only so the scanner skips its body; blanking it would lose the name it
+    # declares from both `DECL_RE` and `code_words`.
+    text = "/-- Doc. -/\ndef «my name» := 1\n"
+    (b,) = _blocks(text)
+    assert b.decl_name == "«my name»"
+    names = set()
+    dl._collect_names(text, names)
+    assert names == {"«my name»"}
+
+
+# --------------------------------------------------------------------------- span invariants
+
+_FRAGMENTS = [
+    "/-- doc -/",
+    "/-! header -/",
+    "/- comment -/",
+    "-- line",
+    '"plain"',
+    'r#"raw "q" -/"#',
+    's!"interp {f "x"} y"',
+    "'\"'",
+    'def «w"» := 0',
+    "def «/-» := 0",
+    "theorem h' : True := trivial",
+    "\n",
+]
+
+
+def _fragment_pairs():
+    """Every ordered pair of the lexical fragments above, as one source file each."""
+    return ["\n".join(c) + "\n" for c in itertools.permutations(_FRAGMENTS, 2)]
+
+
+def test_spans_partition_the_source():
+    # Ordered, non-overlapping, and spans plus the gaps between them reconstruct the source.
+    for src in _fragment_pairs():
+        spans = dl.scan_spans(src)
+        assert all(a.end <= b.start for a, b in zip(spans, spans[1:], strict=False)), src
+        rebuilt, pos = [], 0
+        for sp in spans:
+            assert 0 <= sp.start <= sp.end <= len(src), src
+            rebuilt.append(src[pos : sp.start])
+            rebuilt.append(src[sp.start : sp.end])
+            pos = sp.end
+        rebuilt.append(src[pos:])
+        assert "".join(rebuilt) == src
+
+
+def test_blanking_preserves_length_and_lines():
+    # Every consumer indexes the blanked views by the raw file's offsets and line numbers, so a
+    # view that loses a character or a newline silently misplaces every finding after it.
+    for src in _fragment_pairs():
+        for keep_strings in (False, True):
+            out = dl.code_only(src, keep_strings=keep_strings)
+            assert len(out) == len(src), src
+            assert out.count("\n") == src.count("\n"), src
+
+
+def test_code_views_agree_with_code_only():
+    src = "\n".join(_FRAGMENTS) + "\n"
+    blanked, literals = dl.code_views(src)
+    assert blanked == dl.code_only(src).split("\n")
+    assert literals == dl.code_only(src, keep_strings=True).split("\n")
 
 
 def test_one_line_docstring_with_declaration_on_the_same_line():
@@ -283,6 +381,27 @@ def test_unresolved_ref_one_character_tokens_are_checked():
     text = "/-- Uses `z` and `n`. -/\ntheorem t (n : Nat) : True := trivial\n"
     msgs = [f.message for f in _lint(text, index=set())["t"].findings if f.code == "unresolved-ref"]
     assert msgs == ["`z` names no declaration found"]
+
+
+def test_unresolved_ref_skips_every_notation_range():
+    # The documented exemption is "superscripts or subscripts"; `ⱼ` (U+2C7C) and `ᶜ` (U+1D9C)
+    # sit outside the ranges the pattern first covered.
+    text = "/-- Uses `xⱼ`, `mⱼ`, `xᶜ`, `x₀`, `xᵥ` and `x¹²⁸`. -/\ndef t := 1\n"
+    assert "unresolved-ref" not in _codes(_lint(text, index=set())["t"])
+
+
+def test_unresolved_ref_ignores_backticks_inside_a_fenced_example():
+    # Every other check reads `_prose`, which blanks fences; this one used to read the raw text,
+    # so a placeholder in a code example was resolved like a reference.
+    text = (
+        "/-- Example:\n```lean\n-- `placeholderXyz` is the gap\n"
+        "theorem e : True := trivial\n```\n-/\ndef d := 1\n"
+    )
+    assert "unresolved-ref" not in _codes(_lint(text, index=set())["d"])
+    # ... but a reference in the prose around the fence is still checked.
+    text = text.replace("/-- Example:", "/-- Uses `goneXyz`. Example:")
+    msgs = [f.message for f in _lint(text, index=set())["d"].findings if f.code == "unresolved-ref"]
+    assert msgs == ["`goneXyz` names no declaration found"]
 
 
 def test_unresolved_ref_skips_lean_commands_and_keywords():
@@ -707,6 +826,22 @@ def test_render_github_escapes_workflow_command_data():
     b.add("paren", "info", 1, "100% of it\nand a second line")
     gh = dl.render_github([b])
     assert gh == ("::warning file=dir%2CA%3AB.lean,line=1::paren: 100%25 of it%0Aand a second line")
+
+
+def test_render_github_rebases_paths_on_the_repository_root(tmp_path):
+    # GitHub resolves `file=` against the checkout root; block paths are relative to `--root`.
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    proj = tmp_path / "project"
+    proj.mkdir()
+    assert dl.repo_prefix(proj) == "project/"
+    assert dl.repo_prefix(tmp_path) == ""
+    b = dl.Block("A.lean", 1, 1, "decl", "")
+    b.add("long-line", "error", 1, "117 characters, limit 100")
+    assert dl.render_github([b], "project/").startswith("::error file=project/A.lean,line=1::")
+
+
+def test_repo_prefix_is_empty_outside_a_repository(tmp_path):
+    assert dl.repo_prefix(tmp_path) == ""
 
 
 def test_render_formats():

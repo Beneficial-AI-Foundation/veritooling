@@ -73,6 +73,7 @@ _LITERAL_NAME_KINDS = (
 )
 _LITERAL_NAME_RE = re.compile(r'"([^"\n]+)"')
 _NAME_START_RE = re.compile(r"[A-Za-z_«Ͱ-Ͽ]")
+_GUILLEMET_RE = re.compile(r"«[^»\n]*»")
 _FIELD_RE = re.compile(r"^\s+([A-Za-z_][\w'!?]*)\s*:(?!=)")
 _CTOR_RE = re.compile(r"^\s*\|\s*([A-Za-z_][\w'!?]*)")
 _SECTION_RE = re.compile(r"^\s*section\b\s*([\w.'’]*)")
@@ -89,8 +90,12 @@ _CONNECTIVE_RE = re.compile(r"\b(so|hence|therefore|thus)\b", re.IGNORECASE)
 _PAREN_RE = re.compile(r"\(([^()]*)\)")
 _PROOF_RE = re.compile(r"^\s*\**\s*Proof(?: idea| sketch)?\s*:", re.IGNORECASE | re.MULTILINE)
 _WORD_RE = re.compile(r"[A-Za-z_][\w']*")
-# Superscripts and subscripts mark math notation (`x¹²⁸`, `J₀`), not identifiers to resolve.
-_NOTATION_RE = re.compile(r"[\u00b2\u00b3\u00b9\u1d2c-\u1d6a\u2070-\u209f]")
+# Superscripts and subscripts mark math notation (`x¹²⁸`, `J₀`, `xⱼ`), not identifiers to
+# resolve. The ranges are the three stray Latin-1 digits, the modifier-letter and
+# phonetic blocks in full (U+1D2C–1DBF, so `xᶜ` counts and not only `xᵥ`),
+# the super/subscript block, and the two stragglers at U+2C7C–2C7D (`ⱼ`, `ⱽ`)
+# that sit outside all of them.
+_NOTATION_RE = re.compile(r"[\u00b2\u00b3\u00b9\u1d2c-\u1dbf\u2070-\u209f\u2c7c\u2c7d]")
 
 # Backticked tokens that are Lean vocabulary, not declarations to resolve.
 LEAN_WORDS = frozenset(
@@ -145,17 +150,20 @@ class Block:
 @dataclass
 class Span:
     """A comment, docstring or literal: `kind` is `doc` (`/--`), `module` (`/-!`), `comment`
-    (ordinary `/- -/`), `line` (`--`), `string` (`"…"` and raw `r#"…"#`) or `char` (`'x'`);
-    offsets are [start, end)."""
+    (ordinary `/- -/`), `line` (`--`), `string` (`"…"`, raw `r#"…"#` and interpolated
+    `s!"… {e} …"`), `char` (`'x'`) or `ident` (`«…»`); offsets are [start, end)."""
 
     kind: str
     start: int
     end: int
 
 
-_OPEN_RE = re.compile(r"""/-|--|r\#*"|\"""")
+_OPEN_RE = re.compile(r"""/-|--|r\#*"|\u00ab|\"""")
 _NEST_RE = re.compile(r"/-|-/")
 _STR_RE = re.compile(r'\\.|"', re.DOTALL)
+# Inside an interpolated literal the body of `{…}` is code, so its own quotes must not be
+# read as the end of the string: `s!"{"/-"}"` is one literal, not two plus a comment.
+_INTERP_RE = re.compile(r'\\.|["{}]', re.DOTALL)
 # A character literal is only interesting when it holds a quote (`'"'`, `'\"'`): no other
 # one-character literal can spell `"`, `/-` or `--`. Matched around a quote rather than
 # scanned for, since a lone `'` is far more often a prime in an identifier (`h'`, `x''`).
@@ -167,8 +175,14 @@ def scan_spans(source: str) -> list[Span]:
     """Every comment, docstring and literal span of a Lean source, in order and
     non-overlapping. Block comments nest, `--` runs to the end of the line, plain strings
     honour backslash escapes, a raw string `r#"…"#` ends only at a quote followed by as many
-    `#` as it opened with, and a character literal may hold a quote (`'"'`). A `/--` inside
-    any of those is therefore not a docstring."""
+    `#` as it opened with, a character literal may hold a quote (`'"'`), an interpolated
+    literal (`s!"…"`) carries code in `{…}` whose quotes do not end it, and a guillemet
+    identifier (`«…»`) may spell anything at all. A `/--` inside any of those is therefore not
+    a docstring.
+
+    The forms matter beyond the block they sit on: a quote the scanner reads as opening a
+    string, or a `/-` it reads as opening a comment, desynchronizes it for the rest of the
+    file, and every later docstring silently stops being enumerated."""
     spans: list[Span] = []
     pos = 0
     n = len(source)
@@ -197,24 +211,45 @@ def scan_spans(source: str) -> list[Span]:
             j = source.find(close, i + len(tok))
             end = n if j < 0 else j + len(close)
             kind = "string"
+        elif tok == "\u00ab":
+            j = source.find("\u00bb", i + 1)
+            end = n if j < 0 else j + 1
+            kind = "ident"
         elif char := _quote_in_char_literal(source, i):
             end = char
             kind = "char"
         else:
-            j = i + 1
-            while True:
-                m2 = _STR_RE.search(source, j)
-                if not m2:
-                    j = n
-                    break
-                j = m2.end()
-                if m2.group(0) == '"':
-                    break
-            end = j
+            end = _string_end(source, i)
             kind = "string"
         spans.append(Span(kind, i, end))
         pos = end
     return spans
+
+
+def _string_end(source: str, i: int) -> int:
+    """The end offset of the plain or interpolated string literal opening at the quote `i`.
+    A literal preceded by `!` (`s!`, `m!`, `f!`) interpolates, and the code inside each `{…}`
+    may hold quotes of its own, so brace depth is tracked and a nested literal is skipped
+    whole. Without that, `s!"{"/-"}"` ends at the inner quote and the `/-` that follows opens
+    a comment that swallows the rest of the file."""
+    n = len(source)
+    interp = i > 0 and source[i - 1] == "!"
+    depth = 0
+    j = i + 1
+    while j < n:
+        m = (_INTERP_RE if interp else _STR_RE).search(source, j)
+        if not m:
+            return n
+        j, c = m.end(), m.group(0)
+        if c == '"':
+            if depth == 0:
+                return j
+            j = _string_end(source, m.start())  # a literal inside `{…}`
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth = max(0, depth - 1)
+    return n
 
 
 def _quote_in_char_literal(source: str, i: int) -> int | None:
@@ -268,8 +303,11 @@ def _blank(source: str, spans: list[Span], keep_strings: bool) -> str:
     pieces: list[str] = []
     pos = 0
     for sp in spans:
-        if keep_strings and sp.kind == "string":
-            continue  # `pos` stays put, so the literal survives in the next slice
+        # A guillemet identifier is a span only so the scanner does not read a `"` or a `/-`
+        # in its body as opening something; it is code, and blanking it would lose the name
+        # `«my name»` declares from both `DECL_RE` and `code_words`.
+        if sp.kind == "ident" or (keep_strings and sp.kind == "string"):
+            continue  # `pos` stays put, so the text survives in the next slice
         pieces.append(source[pos : sp.start])
         pieces.append(re.sub(r"[^\n]", " ", source[sp.start : sp.end]))
         pos = sp.end
@@ -367,6 +405,9 @@ def decl_name(kind: str, captured: str | None, line: str) -> str | None:
         m = _LITERAL_NAME_RE.search(line)
         if m:
             return m.group(1).strip() or None
+    if captured and captured.startswith("«"):
+        m = _GUILLEMET_RE.search(line)  # `def «my name»` stops the name pattern at the space
+        return m.group(0) if m else None
     if captured and _NAME_START_RE.match(captured):
         return captured.rstrip(".") or None
     return None
@@ -549,13 +590,26 @@ def resolves(token: str, index: set[str], suffixes: set[str] | None = None) -> b
 # --------------------------------------------------------------------------- checks
 
 
+_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
+
+
+def _fences(text: str) -> list[tuple[int, int]]:
+    """Offsets of the fenced code blocks of a docstring. A backtick span inside one is an
+    illustration, not a reference to resolve, which is why every check agrees on them."""
+    return [(m.start(), m.end()) for m in _FENCE_RE.finditer(text)]
+
+
+def _in_fence(offset: int, fences: list[tuple[int, int]]) -> bool:
+    return any(a <= offset < b for a, b in fences)
+
+
 def _prose(text: str) -> str:
     """Docstring text with backtick spans and fenced code blanked out, offsets preserved."""
 
     def blank(m: re.Match[str]) -> str:
         return re.sub(r"[^\n]", " ", m.group(0))
 
-    text = re.sub(r"```.*?```", blank, text, flags=re.DOTALL)
+    text = _FENCE_RE.sub(blank, text)
     return _BACKTICK_RE.sub(blank, text)
 
 
@@ -687,11 +741,14 @@ def _check_refs(
     suffixes: set[str] | None = None,
 ) -> None:
     binders = binder_names(signature)
+    fences = _fences(block.text)
     seen: set[str] = set()
     for m in _BACKTICK_RE.finditer(block.text):
         tok = m.group(1).strip()
         if tok in seen or not _IDENT_RE.match(tok) or _NOTATION_RE.search(tok):
             continue
+        if _in_fence(m.start(), fences):
+            continue  # a placeholder in a code example is not a reference to resolve
         seen.add(tok)
         if tok in LEAN_WORDS or tok in binders:
             continue
@@ -899,13 +956,26 @@ def _wc_prop(s: str) -> str:
     return _wc_data(s).replace(":", "%3A").replace(",", "%2C")
 
 
-def render_github(blocks: list[Block]) -> str:
+def repo_prefix(root: Path) -> str:
+    """`root`'s path from the top of its git repository, with a trailing slash, or `""`.
+    GitHub resolves a workflow command's `file=` against the checkout root, while block paths
+    are relative to `--root`, which may be a subdirectory: without the prefix the annotation
+    lands on nothing, or on a different file of that name at the top of the repository."""
+    out = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--show-prefix"],
+        capture_output=True,
+        text=True,
+    )
+    return out.stdout.strip() if out.returncode == 0 else ""
+
+
+def render_github(blocks: list[Block], prefix: str = "") -> str:
     out = []
     for b in blocks:
         for f in b.findings:
             level = "error" if f.severity == "error" else "warning"
             out.append(
-                f"::{level} file={_wc_prop(b.path)},line={f.line}"
+                f"::{level} file={_wc_prop(prefix + b.path)},line={f.line}"
                 f"::{_wc_data(f.code)}: {_wc_data(f.message)}"
             )
     return "\n".join(out)
@@ -993,7 +1063,7 @@ def main(argv: list[str] | None = None) -> int:
             blocks = [b for b in blocks if b.findings]
         print(render_json(blocks, root, scope_desc))
     elif args.format == "github":
-        print(render_github(blocks))
+        print(render_github(blocks, repo_prefix(root)))
     else:
         print(render_text(blocks))
 
