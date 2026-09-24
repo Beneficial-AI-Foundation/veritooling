@@ -18,6 +18,13 @@ check the type against it without decoding Lean:
   random permutation", "independent uniform samples `yᵢ`", "the law of `(π(x₁), …, π(x_q))`",
   not the monadic plumbing (`<$>`, `simulateQ`, `evalDist`, `liftComp`) that encodes them;
 - when the content is a formula, display it in a ```` ```text ```` block;
+- write formulas in mathematical notation, matching the reference the development
+  formalizes (a standard such as NIST SP 800-38D, or a paper): `⊕` for XOR, the reference's
+  product symbols (`·`, `•`), shifts (`≫`), superscripts, `⌈L/128⌉`, `2¹²⁸`, and its names for
+  its variables, even where the Lean term writes `^^^`, `*`, `^`, `>>>`. Lean identifiers keep
+  their names, and comments inside proofs keep Lean syntax since they sit next to the code. The
+  formula is checked against the type by meaning; it need not parse as Lean, where `⊕` is the
+  sum type;
 - state exactly what the type states: every hypothesis the type carries, the same quantifiers,
   the same direction (`≤` or `=`), the same objects. A docstring that drops a hypothesis
   (`ε ≠ ⊤`, a query bound, irreducibility) is incomplete and gets REPHRASE; one that claims
