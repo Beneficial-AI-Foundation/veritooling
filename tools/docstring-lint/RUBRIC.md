@@ -58,13 +58,21 @@ Beyond the statement, a docstring may add what the code cannot say:
   standard, `Equiv` rather than `≃ₗ` because the additive structure is the wrong one);
 - for a module header, the setting, the main results, a short proof sketch, the scope and its
   limitations, and references. Proof sketches and "where each piece lives" belong here, not on
-  the declarations.
+  the declarations; see [Module headers](#module-headers).
 
 Do not force this form. A plumbing lemma, a simp normal form, a definition whose one line
 already says what it is, or a game best described procedurally has no textbook statement;
 wrapping a one-line fact in "Let … Then …" makes it worse. Short direct sentences are the
 target for small lemmas: "For a fixed function `g : X → X`, a query at `d` always returns
 `g d`."
+
+The textbook form is for statements a reader would otherwise have to decode. When the Lean
+statement is short and reads as easily as the prose would, a docstring that restates it adds
+nothing: omit it, or keep a short title such as `/-- **Forge-resampling at an uncached
+point.** -/`. The same holds when a module or section header already states the result as a
+displayed formula. Omitting is not an option where the project's linter requires a docstring
+(Batteries' `docBlame` on public `def`s and `structure`s); there, one line saying what the
+object is suffices.
 
 What a docstring must not do:
 
@@ -85,6 +93,33 @@ What a docstring must not do:
   "distinct inputs with identical hashes");
 - name a file, lemma or hypothesis that no longer exists, or describe a proof route the proof
   term does not take.
+
+## Module headers
+
+A module header (`/-! … -/`) sets up what the declarations below it state. For a file that
+formalizes a definition, a construction or a security game:
+
+- set up every object before using it, with its type or signature and one line of meaning,
+  grouped in labelled lists (`[SPACES]`, `[ALGORITHMS]`, `[OBJECTS]`) or subsections:
+  "`sendA : St → m (Option (I × Rho × St))`. Generates a new epoch key `kA`, a message `ρA`
+  to B and A's next state.";
+- write algorithms and conditions in the reference's notation (`Encode(M, i) → c`, `⊥`,
+  `L_I = {(i, Encode(M, i)) | i ∈ I}`), with equations displayed on their own lines;
+- recall the definitions a reader needs rather than assuming them ("*Recall:* a Reed–Solomon
+  code with parameters `k ≤ N` is …");
+- draw protocol flows, game structure and data layouts as ```` ```text ```` diagrams where
+  they are clearer than prose;
+- cite the reference down to the Definition or Figure formalized, and list each departure
+  from it as a numbered item: what the reference does, what the formalization does, and why
+  the difference is harmless;
+- say what is not modelled.
+
+A structure's docstring lists each parameter with its meaning, and each field has its own
+docstring.
+
+For a proof-heavy file or section, the header, or a `/-!` section header, carries the proof
+sketch: the goal as a displayed formula, then the reduction as numbered steps, one per lemma,
+each saying what that lemma states. The declarations below carry only their statements.
 
 ## Verdicts
 
