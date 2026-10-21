@@ -41,6 +41,8 @@ The other pipelines' committed series work the same way:
 | `data/dalek-verus/` | Verus | unit: `exec` atom |
 | `data/SparsePostQuantumRatchet-verify/` | Aeneas | unit: `exec` atom (`--translated` available) |
 | `data/secure-messaging/` | leanblueprint | unit: blueprint node, defs and thms pooled |
+| `data/kvac-model-blueprint/` | leanblueprint | unit: blueprint node, defs and thms pooled |
+| `data/pqxdh-model/` | leanblueprint | unit: blueprint node, defs and thms pooled |
 | `data/kvac-model-from-probe-lean/` | lean | unit: declaration, defs and thms pooled; ceiling labelled `total` |
 
 The unit is auto-detected from the records; you do not pass `--pipeline` to
