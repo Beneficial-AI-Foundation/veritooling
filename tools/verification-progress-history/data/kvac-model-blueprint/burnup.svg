@@ -1,47 +1,87 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1156" height="460" viewBox="0 0 1156 460" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
   <rect width="1156" height="460" fill="#FFFFFF" />
   <text x="64" y="28" font-size="17" font-weight="600" fill="#333333">kvac-model-blueprint</text>
-  <text x="64" y="47" font-size="11" fill="#777777">kvac-model-blueprint · 5 samples · source: progress.jsonl · unit: blueprint node · proof status: probe-lean</text>
+  <text x="64" y="47" font-size="11" fill="#777777">kvac-model-blueprint · 15 samples · source: progress.jsonl · unit: blueprint node · proof status: probe-lean</text>
   <line x1="64" y1="364.0" x2="770" y2="364.0" stroke="#E4E4E422" />
   <text x="56" y="368.0" font-size="10" text-anchor="end" fill="#777777">0</text>
   <line x1="64" y1="304.0" x2="770" y2="304.0" stroke="#E4E4E422" />
-  <text x="56" y="308.0" font-size="10" text-anchor="end" fill="#777777">10</text>
+  <text x="56" y="308.0" font-size="10" text-anchor="end" fill="#777777">20</text>
   <line x1="64" y1="244.0" x2="770" y2="244.0" stroke="#E4E4E422" />
-  <text x="56" y="248.0" font-size="10" text-anchor="end" fill="#777777">20</text>
+  <text x="56" y="248.0" font-size="10" text-anchor="end" fill="#777777">40</text>
   <line x1="64" y1="184.0" x2="770" y2="184.0" stroke="#E4E4E422" />
-  <text x="56" y="188.0" font-size="10" text-anchor="end" fill="#777777">30</text>
+  <text x="56" y="188.0" font-size="10" text-anchor="end" fill="#777777">60</text>
   <line x1="64" y1="124.0" x2="770" y2="124.0" stroke="#E4E4E422" />
-  <text x="56" y="128.0" font-size="10" text-anchor="end" fill="#777777">40</text>
+  <text x="56" y="128.0" font-size="10" text-anchor="end" fill="#777777">80</text>
   <line x1="64" y1="64.0" x2="770" y2="64.0" stroke="#E4E4E422" />
-  <text x="56" y="68.0" font-size="10" text-anchor="end" fill="#777777">50</text>
+  <text x="56" y="68.0" font-size="10" text-anchor="end" fill="#777777">100</text>
   <line x1="64" y1="64" x2="64" y2="364" stroke="#999999" />
   <line x1="64" y1="364" x2="770" y2="364" stroke="#999999" />
   <text x="16" y="214.0" font-size="11" fill="#777777" text-anchor="middle" transform="rotate(-90 16 214.0)">blueprint nodes</text>
   <text x="64.0" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 64.0 376.0)">2026-05-18</text>
-  <text x="240.5" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 240.5 376.0)">2026-06-17</text>
-  <text x="417.0" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 417.0 376.0)">2026-07-15</text>
-  <text x="593.5" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 593.5 376.0)">2026-08-05</text>
-  <text x="770.0" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 770.0 376.0)">2026-08-12</text>
-  <polygon points="64.0,106.0 240.5,106.0 417.0,106.0 593.5,106.0 770.0,106.0 770.0,364.0 64.0,364.0" fill="#888899" fill-opacity="0.08" stroke="none" />
-  <polygon points="64.0,340.0 240.5,292.0 417.0,280.0 593.5,250.0 770.0,250.0 770.0,364.0 64.0,364.0" fill="#1F8A65" fill-opacity="0.14" stroke="none" />
-  <polyline points="64.0,106.0 240.5,106.0 417.0,106.0 593.5,106.0 770.0,106.0" fill="none" stroke="#888899" stroke-width="2.0" stroke-linejoin="round" />
-  <circle cx="64.0" cy="106.0" r="2.6" fill="#888899" />
-  <circle cx="240.5" cy="106.0" r="2.6" fill="#888899" />
-  <circle cx="417.0" cy="106.0" r="2.6" fill="#888899" />
-  <circle cx="593.5" cy="106.0" r="2.6" fill="#888899" />
-  <circle cx="770.0" cy="106.0" r="2.6" fill="#888899" />
-  <polyline points="64.0,340.0 240.5,292.0 417.0,280.0 593.5,250.0 770.0,250.0" fill="none" stroke="#1F8A65" stroke-width="2.0" stroke-linejoin="round" />
-  <circle cx="64.0" cy="340.0" r="2.6" fill="#1F8A65" />
-  <circle cx="240.5" cy="292.0" r="2.6" fill="#1F8A65" />
-  <circle cx="417.0" cy="280.0" r="2.6" fill="#1F8A65" />
-  <circle cx="593.5" cy="250.0" r="2.6" fill="#1F8A65" />
-  <circle cx="770.0" cy="250.0" r="2.6" fill="#1F8A65" />
-  <polyline points="64.0,364.0 240.5,364.0 417.0,364.0 593.5,364.0 770.0,364.0" fill="none" stroke="#E8833A" stroke-width="2.0" stroke-linejoin="round" />
+  <text x="114.4" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 114.4 376.0)">2026-06-17</text>
+  <text x="164.9" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 164.9 376.0)">2026-07-15</text>
+  <text x="215.3" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 215.3 376.0)">2026-08-05</text>
+  <text x="265.7" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 265.7 376.0)">2026-08-12</text>
+  <text x="316.1" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 316.1 376.0)">2026-08-19</text>
+  <text x="366.6" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 366.6 376.0)">2026-08-26</text>
+  <text x="417.0" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 417.0 376.0)">2026-09-02</text>
+  <text x="467.4" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 467.4 376.0)">2026-09-09</text>
+  <text x="517.9" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 517.9 376.0)">2026-09-16</text>
+  <text x="568.3" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 568.3 376.0)">2026-09-23</text>
+  <text x="618.7" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 618.7 376.0)">2026-09-30</text>
+  <text x="669.1" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 669.1 376.0)">2026-10-07</text>
+  <text x="719.6" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 719.6 376.0)">2026-10-14</text>
+  <text x="770.0" y="376.0" font-size="10" fill="#777777" text-anchor="end" transform="rotate(-40 770.0 376.0)">2026-10-21</text>
+  <polygon points="64.0,235.0 114.4,235.0 164.9,235.0 215.3,235.0 265.7,232.0 316.1,217.0 366.6,211.0 417.0,211.0 467.4,181.0 517.9,181.0 568.3,142.0 618.7,115.0 669.1,103.0 719.6,91.0 770.0,85.0 770.0,364.0 64.0,364.0" fill="#888899" fill-opacity="0.08" stroke="none" />
+  <polygon points="64.0,352.0 114.4,328.0 164.9,322.0 215.3,307.0 265.7,295.0 316.1,277.0 366.6,271.0 417.0,271.0 467.4,259.0 517.9,259.0 568.3,208.0 618.7,190.0 669.1,175.0 719.6,163.0 770.0,160.0 770.0,364.0 64.0,364.0" fill="#1F8A65" fill-opacity="0.14" stroke="none" />
+  <polyline points="64.0,235.0 114.4,235.0 164.9,235.0 215.3,235.0 265.7,232.0 316.1,217.0 366.6,211.0 417.0,211.0 467.4,181.0 517.9,181.0 568.3,142.0 618.7,115.0 669.1,103.0 719.6,91.0 770.0,85.0" fill="none" stroke="#888899" stroke-width="2.0" stroke-linejoin="round" />
+  <circle cx="64.0" cy="235.0" r="2.6" fill="#888899" />
+  <circle cx="114.4" cy="235.0" r="2.6" fill="#888899" />
+  <circle cx="164.9" cy="235.0" r="2.6" fill="#888899" />
+  <circle cx="215.3" cy="235.0" r="2.6" fill="#888899" />
+  <circle cx="265.7" cy="232.0" r="2.6" fill="#888899" />
+  <circle cx="316.1" cy="217.0" r="2.6" fill="#888899" />
+  <circle cx="366.6" cy="211.0" r="2.6" fill="#888899" />
+  <circle cx="417.0" cy="211.0" r="2.6" fill="#888899" />
+  <circle cx="467.4" cy="181.0" r="2.6" fill="#888899" />
+  <circle cx="517.9" cy="181.0" r="2.6" fill="#888899" />
+  <circle cx="568.3" cy="142.0" r="2.6" fill="#888899" />
+  <circle cx="618.7" cy="115.0" r="2.6" fill="#888899" />
+  <circle cx="669.1" cy="103.0" r="2.6" fill="#888899" />
+  <circle cx="719.6" cy="91.0" r="2.6" fill="#888899" />
+  <circle cx="770.0" cy="85.0" r="2.6" fill="#888899" />
+  <polyline points="64.0,352.0 114.4,328.0 164.9,322.0 215.3,307.0 265.7,295.0 316.1,277.0 366.6,271.0 417.0,271.0 467.4,259.0 517.9,259.0 568.3,208.0 618.7,190.0 669.1,175.0 719.6,163.0 770.0,160.0" fill="none" stroke="#1F8A65" stroke-width="2.0" stroke-linejoin="round" />
+  <circle cx="64.0" cy="352.0" r="2.6" fill="#1F8A65" />
+  <circle cx="114.4" cy="328.0" r="2.6" fill="#1F8A65" />
+  <circle cx="164.9" cy="322.0" r="2.6" fill="#1F8A65" />
+  <circle cx="215.3" cy="307.0" r="2.6" fill="#1F8A65" />
+  <circle cx="265.7" cy="295.0" r="2.6" fill="#1F8A65" />
+  <circle cx="316.1" cy="277.0" r="2.6" fill="#1F8A65" />
+  <circle cx="366.6" cy="271.0" r="2.6" fill="#1F8A65" />
+  <circle cx="417.0" cy="271.0" r="2.6" fill="#1F8A65" />
+  <circle cx="467.4" cy="259.0" r="2.6" fill="#1F8A65" />
+  <circle cx="517.9" cy="259.0" r="2.6" fill="#1F8A65" />
+  <circle cx="568.3" cy="208.0" r="2.6" fill="#1F8A65" />
+  <circle cx="618.7" cy="190.0" r="2.6" fill="#1F8A65" />
+  <circle cx="669.1" cy="175.0" r="2.6" fill="#1F8A65" />
+  <circle cx="719.6" cy="163.0" r="2.6" fill="#1F8A65" />
+  <circle cx="770.0" cy="160.0" r="2.6" fill="#1F8A65" />
+  <polyline points="64.0,364.0 114.4,364.0 164.9,364.0 215.3,364.0 265.7,364.0 316.1,364.0 366.6,364.0 417.0,361.0 467.4,361.0 517.9,361.0 568.3,355.0 618.7,349.0 669.1,340.0 719.6,340.0 770.0,337.0" fill="none" stroke="#E8833A" stroke-width="2.0" stroke-linejoin="round" />
   <circle cx="64.0" cy="364.0" r="2.6" fill="#E8833A" />
-  <circle cx="240.5" cy="364.0" r="2.6" fill="#E8833A" />
-  <circle cx="417.0" cy="364.0" r="2.6" fill="#E8833A" />
-  <circle cx="593.5" cy="364.0" r="2.6" fill="#E8833A" />
-  <circle cx="770.0" cy="364.0" r="2.6" fill="#E8833A" />
+  <circle cx="114.4" cy="364.0" r="2.6" fill="#E8833A" />
+  <circle cx="164.9" cy="364.0" r="2.6" fill="#E8833A" />
+  <circle cx="215.3" cy="364.0" r="2.6" fill="#E8833A" />
+  <circle cx="265.7" cy="364.0" r="2.6" fill="#E8833A" />
+  <circle cx="316.1" cy="364.0" r="2.6" fill="#E8833A" />
+  <circle cx="366.6" cy="364.0" r="2.6" fill="#E8833A" />
+  <circle cx="417.0" cy="361.0" r="2.6" fill="#E8833A" />
+  <circle cx="467.4" cy="361.0" r="2.6" fill="#E8833A" />
+  <circle cx="517.9" cy="361.0" r="2.6" fill="#E8833A" />
+  <circle cx="568.3" cy="355.0" r="2.6" fill="#E8833A" />
+  <circle cx="618.7" cy="349.0" r="2.6" fill="#E8833A" />
+  <circle cx="669.1" cy="340.0" r="2.6" fill="#E8833A" />
+  <circle cx="719.6" cy="340.0" r="2.6" fill="#E8833A" />
+  <circle cx="770.0" cy="337.0" r="2.6" fill="#E8833A" />
   <rect x="786" y="59" width="12" height="12" rx="2" fill="#888899" />
   <text x="804" y="69" font-size="11" fill="#333333">tracked (ceiling)</text>
   <rect x="786" y="79" width="12" height="12" rx="2" fill="#1F8A65" />
